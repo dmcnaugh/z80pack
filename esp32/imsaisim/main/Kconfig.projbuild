@@ -1,0 +1,34 @@
+menu "IMSAI 8080 Simulator"
+
+config IMSAI_AUTOSTART
+    bool "Autostart simulation"
+    default y
+    help
+        If this option is enabled, restart the IMSAI 8080
+        simulator automatically after any CPU error
+
+config CONFDIR
+    string "Directory for config files"
+    default "/sdcard/imsai/conf"
+    help 
+        Fully qualified path to the simulation config files
+
+config DISKSDIR
+    string "Directory for disk images"
+    default "/sdcard/imsai/disks"
+    help 
+        Fully qualified path to the simulation disk images
+
+config BOOTROM
+    string "Bootrom file"
+    default "/sdcard/imsai/bootrom.hex"
+    help 
+        Fully qualified path for simulation bootrom file
+
+config CORE_PATH
+    string "Directory for core file"
+    default "/sdcard/imsai"
+    help 
+        Fully qualified path for storing a core file
+
+endmenu
