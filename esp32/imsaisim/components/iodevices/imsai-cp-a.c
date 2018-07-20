@@ -14,7 +14,7 @@
 
 #include "sim.h"
 #include "simglb.h"
-#include "../../frontpanel/frontpanel.h"
+#include "frontpanel.h"
 
 #ifdef ESP_PLATFORM
 #include "esp32_hardware.h"

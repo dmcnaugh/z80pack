@@ -32,7 +32,7 @@ static const char* TAG = "VIO";
 #include <sys/time.h>
 #include "sim.h"
 #include "simglb.h"
-#include "../../frontpanel/frontpanel.h"
+#include "frontpanel.h"
 #include "memory.h"
 #ifndef ESP_PLATFORM
 #include "imsai-vio-charset.h"

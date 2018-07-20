@@ -37,7 +37,7 @@
 #include "sim.h"
 #include "simglb.h"
 #include "config.h"
-#include "../../frontpanel/frontpanel.h"
+#include "frontpanel.h"
 #include "memory.h"
 #ifdef UNIX_TERMINAL
 #include "unix_terminal.h"

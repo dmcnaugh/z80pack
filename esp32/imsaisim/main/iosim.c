@@ -48,7 +48,7 @@ extern QueueHandle_t printQueue;
 // #include "../../iodevices/imsai-vio.h"
 #include "imsai-vio.h"
 #endif //IMSAI_VIO
-#include "../../frontpanel/frontpanel.h"
+#include "frontpanel.h"
 #include "memory.h"
 
 /*

@@ -79,7 +79,7 @@ CONFIG_MONITOR_BAUD=115200
 #
 # IMSAI 8080 Simulator
 #
-CONFIG_IMSAI_AUTOSTART=y
+CONFIG_IMSAI_AUTOSTART=
 CONFIG_CONFDIR="/sdcard/imsai/conf"
 CONFIG_DISKSDIR="/sdcard/imsai/disks"
 CONFIG_BOOTROM="/sdcard/imsai/bootrom.hex"
