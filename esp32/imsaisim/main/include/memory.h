@@ -1,7 +1,8 @@
 /*
  * Z80SIM  -  a Z80-CPU simulator
  *
- * Copyright (C) 2016-2017 by Udo Munk
+ * Copyright (C) 2016-2018 by Udo Munk
+ * Copyright (C) 2018 David McNaughton
  *
  * This module implements memory management for an IMSAI 8080 system
  *
@@ -9,6 +10,9 @@
  * 22-NOV-2016 stuff moved to here and implemented as inline functions
  * 30-DEC-2016 implemented 1 KB page table and setup for that
  * 26-JAN-2017 initialise ROM with 0xff
+ * 04-JUL-2018 optimization
+ * 07-JUL-2018 implemended banked ROM/RAM
+ * 12-JUL-2018 use logging
  */
 
 extern void init_memory(void), reset_memory(void), init_rom(void);
@@ -39,17 +43,22 @@ extern void groupswap();
 #else
 #define _MEMWRTTHRU(addr) 	_MEMDIRECT(addr)
 #define _MEMMAPPED(addr) 	_MEMDIRECT(addr)
-#endif //HAS_BANKED_ROM
+#endif
 #define _MEMDIRECT(addr) 	memory[(addr)]
 
-#define _GROUPINIT	0x00	// Power-on default
-#define _GROUP0 	0x40	// 2K ROM @ 0000-07FF
-#define _GROUP1 	0x80	// 2K ROM @ D800-DFFF, 256 byte RAM @ DOOO-DOFF (actually 1K RAM @ DOOO-D3FF)
+#define _GROUPINIT	0x00	/* Power-on default */
+#define _GROUP0 	0x40	/* 2K ROM @ 0000-07FF */
+#define _GROUP1 	0x80	/* 2K ROM @ D800-DFFF, 256 byte RAM @ DOOO-DOFF
+				   (actually 1K RAM @ DOOO-D3FF) */
 
-#define MEM_RELEASE(page) 		p_tab[(page)] = (ram_size > (page))?MEM_RW:MEM_NONE	// return page to RAM pool
-#define MEM_ROM_BANK_ON(page)	p_tab[(page)] = (ram_size > (page))?MEM_RW:MEM_RO	// reserve page as banked ROM
-#define MEM_RESERVE_RAM(page)	p_tab[(page)] = MEM_RW								// reserve page as RAM
-#define MEM_RESERVE_ROM(page)	p_tab[(page)] = MEM_RO								// reserve page as ROM
+/* return page to RAM pool */
+#define MEM_RELEASE(page) 	p_tab[(page)] = (ram_size > (page)) ? MEM_RW : MEM_NONE
+/* reserve page as banked ROM */
+#define MEM_ROM_BANK_ON(page)	p_tab[(page)] = (ram_size > (page)) ? MEM_RW : MEM_RO
+/* reserve page as RAM */
+#define MEM_RESERVE_RAM(page)	p_tab[(page)] = MEM_RW
+/* reserve page as ROM */
+#define MEM_RESERVE_ROM(page)	p_tab[(page)] = MEM_RO
 
 /*
  * memory access for the CPU cores

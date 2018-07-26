@@ -24,8 +24,9 @@
  * 07-DEC-2016 added bus request for the DMA
  * 19-DEC-2016 use the new memory interface for DMA access
  * 22-JUN-2017 added reset function
-  * 19-MAY-2018 improved reset
-*/
+ * 19-MAY-2018 improved reset
+ * 13-JUL-2018 use logging & integrate disk manager
+ */
 
 #include <unistd.h>
 #include <stdio.h>
@@ -37,6 +38,8 @@
 #include "config.h"
 #include "frontpanel.h"
 #include "memory.h"
+// #define LOG_LOCAL_LEVEL LOG_DEBUG
+#include "log.h"
 
 #ifdef ESP_PLATFORM
 #include "esp32_hardware.h"
@@ -63,9 +66,11 @@ int disk_stat = 0;
 #define SPT		26
 #define TRK		77
 
-//#define DEBUG		/* so we can see what the FIF is asked to do */
+static const char *TAG = "FIF";
 
-#ifndef ESP_PLATFORM
+#ifdef HAS_DISKMANAGER
+extern char *disks[];
+#else
 /* these are our disk drives */
 static char *disks[4] = {
 	"drivea.dsk",
@@ -73,18 +78,15 @@ static char *disks[4] = {
 	"drivec.dsk",
 	"drived.dsk"
 };
+#endif
 
 static char fn[MAX_LFN];	/* path/filename for disk image */
-#else
-extern char *disks[];
-extern char fn[];
-#endif //ESP_PLATFORM
 static int fdstate = 0;		/* state of the fd */
 
 /*
  * find and set path for disk images
  */
-void dsk_path(void) {
+char *dsk_path(void) {
 	struct stat sbuf;
 
 	/* if option -d is used disks are there */
@@ -98,7 +100,9 @@ void dsk_path(void) {
 		} else {
 			strcpy(fn, DISKSDIR);
 		}
+		strncpy(diskd, fn, MAX_LFN);
 	}
+	return diskd;
 }
 
 BYTE imsai_fif_in(void)
@@ -142,28 +146,10 @@ void imsai_fif_out(BYTE data)
 			break;
 	
 		case 0x20:	/* reset drive(s) */
-#ifdef ESP_PLATFORM
-			// descno = data & 0xf;
-			// if(descno == 0xf) {
-			// 	gpio_set_level(disk_ind[0], HIGH); 
-			// 	gpio_set_level(disk_ind[1], HIGH); 
-			// 	gpio_set_level(disk_ind[2], HIGH); 
-			// 	gpio_set_level(disk_ind[3], HIGH); 
-			// 	usleep(6000000);
-			// 	gpio_set_level(disk_ind[0], LOW); 
-			// 	gpio_set_level(disk_ind[1], LOW); 
-			// 	gpio_set_level(disk_ind[2], LOW); 
-			// 	gpio_set_level(disk_ind[3], LOW); 
-			// } else {
-			// 	gpio_set_level(disk_ind[descno], HIGH); 
-			// 	usleep(3000000);
-			// 	gpio_set_level(disk_ind[descno], LOW); 
-			// }
-#endif //ESP_PLATFORM
 			break;	/* no mechanical drives, so nothing to do */
 
 		default:
-			printf("FIF: unknown cmd %02x\r\n", data);
+			LOGW(TAG, "unknown cmd %02x", data);
 			return;
 		}
 		break;
@@ -179,7 +165,7 @@ void imsai_fif_out(BYTE data)
 		break;
 
 	default:
-		printf("FIF: internal state error\r\n");
+		LOGE(TAG, "internal state error");
 		cpu_error = IOERROR;
 		cpu_state = STOPPED;
 		break;
@@ -223,17 +209,15 @@ void disk_io(int addr)
 	static int disk;		/* internal disk no */
 	static char blksec[SEC_SZ];
 
-#ifdef DEBUG
-	printf("FIF disk descriptor at %04x\r\n", addr);
-	printf("FIF unit: %02x\r\n", *(mem_base() + addr + DD_UNIT));
-	printf("FIF result: %02x\r\n", *(mem_base() + addr + DD_RESULT));
-	printf("FIF nn: %02x\r\n", *(mem_base() + addr + DD_NN));
-	printf("FIF track: %02x\r\n", *(mem_base() + addr + DD_TRACK));
-	printf("FIF sector: %02x\r\n", *(mem_base() + addr + DD_SECTOR));
-	printf("FIF DMA low: %02x\r\n", *(mem_base() + addr + DD_DMAL));
-	printf("FIF DMA high: %02x\r\n", *(mem_base() + addr + DD_DMAH));
-	printf("\r\n");
-#endif
+	LOGD(TAG, "disk descriptor at %04x", addr);
+	LOGD(TAG, "unit: %02x", *(mem_base() + addr + DD_UNIT));
+	LOGD(TAG, "result: %02x", *(mem_base() + addr + DD_RESULT));
+	LOGD(TAG, "nn: %02x", *(mem_base() + addr + DD_NN));
+	LOGD(TAG, "track: %02x", *(mem_base() + addr + DD_TRACK));
+	LOGD(TAG, "sector: %02x", *(mem_base() + addr + DD_SECTOR));
+	LOGD(TAG, "DMA low: %02x", *(mem_base() + addr + DD_DMAL));
+	LOGD(TAG, "DMA high: %02x", *(mem_base() + addr + DD_DMAH));
+	LOGD(TAG, "");
 
 	unit = dma_read(addr + DD_UNIT) & 0xf;
 	cmd = dma_read(addr + DD_UNIT) >> 4;
@@ -271,7 +255,7 @@ void disk_io(int addr)
 	update_status(disk_stat, STATUS_FORCE);
 #endif //ESP_PLATFORM
 
-	/* test if disk is ejected */
+	/* handle case when disk is ejected */
 	if(disks[disk] == NULL) {
 		dma_write(addr + DD_RESULT, 3);
 		return;
@@ -395,6 +379,13 @@ done:
 void imsai_fif_reset(void)
 {
 	fdstate = 0;
+
+#ifdef HAS_DISKMANAGER
+	extern void readDiskmap(char *);
+	readDiskmap(dsk_path());
+#endif
+
+
 #ifdef ESP_PLATFORM
 	disk_stat = 0;
 	update_status(disk_stat, STATUS_FORCE);

@@ -42,9 +42,9 @@ int     fp_init2(char *cfg_root_path, char *cfg_fname, int size);
 int     fp_init(char *cfg_fname);
 int	fp_openWindow(char *title);
 void	fp_framerate(float f);
-// void	fp_sampleData(void);
+void	fp_sampleData(void);
 void	fp_sampleDataWarp(int clockwarp);
-// void	fp_sampleLightGroup(int groupnum, int clockwarp);
+void	fp_sampleLightGroup(int groupnum, int clockwarp);
 void	fp_sampleSwitches(void);
 void	fp_quit(void);
 
@@ -78,8 +78,6 @@ int	fp_smoothLight(char *name, int nframes);
 
 int	fp_addSwitchCallback(char *name, void (*cbfunc)(int state, int val), int userval);
 void	fp_addQuitCallback(void (*cbfunc)(void));
-void	fp_addDrawCallback(void (*cbfunc)(void));
-void	fp_addSampleCallback(void (*cbfunc)(void));
 
 /* error reporting */
 

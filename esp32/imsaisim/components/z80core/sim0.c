@@ -59,6 +59,9 @@
 #include <libgen.h>
 #include <ctype.h>
 #include <fcntl.h>
+#ifndef ESP_PLATFORM
+#include <memory.h>
+#endif
 #include <sys/stat.h>
 #include <sys/time.h>
 #include "sim.h"

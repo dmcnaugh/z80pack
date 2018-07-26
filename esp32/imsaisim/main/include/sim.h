@@ -17,6 +17,7 @@
  * 06-DEC-16 implemented status display and stepping for all machine cycles
  * 12-JAN-17 improved configuration and front panel LED timing, VIO emulation
  * 10-APR-18 trap CPU on unsupported bus data during interrupt
+ * 14-JUL-18 integrate webfrontend
  */
 
 /*
@@ -38,6 +39,9 @@
 #define HAS_DISKS	/* uses disk images */
 #define HAS_CONFIG	/* has configuration files somewhere */
 #define HAS_BANKED_ROM	/* emulate IMSAI MPU-B banked ROM & RAM */
+
+#define HAS_DISKMANAGER	/* uses file based disk map for disks[] */
+#define HAS_NETSERVER	/* uses civet webserver to present a web based frontend */
 
 #define MAX_RAM	64	/* Maximum RAM size */
 
@@ -125,8 +129,10 @@ struct softbreak {			/* structure of a breakpoint */
 };
 #endif
 
+#ifndef ESP_PLATFORM
 #ifndef isxdigit
 #define isxdigit(c) ((c<='f'&&c>='a')||(c<='F'&&c>='A')||(c<='9'&&c>='0'))
+#endif
 #endif
 
 extern void sleep_ms(int);

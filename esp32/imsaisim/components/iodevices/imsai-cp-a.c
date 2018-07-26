@@ -20,6 +20,7 @@
 #include "esp32_hardware.h"
 #include "esp_timer.h"
 #endif //ESP_PLATFORM
+#include "netsrv.h"
 
 #define PANEL_ENV "PANEL"
 
@@ -52,8 +53,6 @@ extern void reset_clicked(int, int);
 static void draw_callback(void*);
 extern void sample_callback(void);
 
-extern void cpaSend(char *);
-
 #ifdef ESP_PLATFORM
 WORD keySW, keySHOT;
 
@@ -71,7 +70,7 @@ void update_cpa(bool force) {
     cpa_status[4] = bus_request?'H':' ';
     cpa_status[5] = 0;
 	if(force || strncmp(cpa_status, last_cpa_status, 6)) {
-		cpaSend(cpa_status);
+		net_device_send(DEV_CPA, cpa_status, 6);
 		strncpy(last_cpa_status, cpa_status, 6);
 	};
 };

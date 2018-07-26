@@ -54,9 +54,13 @@
 #include <ctype.h>
 #include <termios.h>
 #include <time.h>
+#include <sys/time.h>
 #include <errno.h>
 #include "sim.h"
 #include "simglb.h"
+#include "log.h"
+
+static const char *TAG = "func";
 
 /*
  *	atoi for hexadecimal numbers
@@ -99,7 +103,7 @@ int getkey(void)
  */
 void sleep_ms(int time)
 {
-	static struct timespec timer, rem;
+	struct timespec timer, rem;
 
 	timer.tv_sec = 0;
 	timer.tv_nsec = 1000000L * time;
@@ -112,7 +116,7 @@ again:
 			goto again;
 		} else {
 			/* some error */
-			perror("sleep_ms()");
+			LOGE(TAG, "sleep_ms()");
 			cpu_error = IOERROR;
 			cpu_state = STOPPED;
 		}

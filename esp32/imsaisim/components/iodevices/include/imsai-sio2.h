@@ -3,7 +3,7 @@
  *
  * Common I/O devices used by various simulated machines
  *
- * Copyright (C) 2008-2015 by Udo Munk
+ * Copyright (C) 2008-2018 by Udo Munk
  *
  * Emulation of an IMSAI SIO-2 S100 board
  *
@@ -13,6 +13,10 @@
  * 18-JUL-14 don't block on read from terminal
  * 09-OCT-14 modified to support SIO 2
  * 23-MAR-15 drop only null's
+ * 22-AUG-17 reopen tty at EOF from input redirection
+ * 03-MAY-18 improved accuracy
+ * 03-JUL-18 implemented baud rate for terminal SIO
+ * 13-JUL-18 use logging
  */
 
 extern BYTE imsai_sio1_status_in(void);

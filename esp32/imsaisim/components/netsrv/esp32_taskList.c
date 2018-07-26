@@ -4,8 +4,13 @@
 #include "esp_task.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+// #include "civetweb.h"
 #include "libesphttpd/esp.h"
 #include "libesphttpd/httpd.h"
+#include "libesphttpd/httpd-freertos.h"
+#include "netsrv.h"
+
+static const char* TAG = "esp32_taskList";
 
 /*
  * Macros used by vListTask to indicate which state a task is in.
@@ -15,14 +20,15 @@
 #define tskDELETED_CHAR		( 'D' )
 #define tskSUSPENDED_CHAR	( 'S' )
 
-#define HTTPD_PRINTF(args...)   sprintf(pcWriteBuffer, args); httpdSend(connData, pcWriteBuffer, -1);
-
-void taskGetRunTimeStats( HttpdConnData *connData, char *pcWriteBuffer )
+int taskGetRunTimeStats(HttpdConnection_t *conn, void *unused)
 {
 TaskStatus_t *pxTaskStatusArray;
 volatile UBaseType_t uxArraySize, x;
 uint32_t ulTotalTime, ulStatsAsPercentage;
 char cStatus;
+char pcWriteBuffer[2048];
+
+    UNUSED(unused);
 
     /* Make sure the write buffer does not contain a string. */
     *pcWriteBuffer = 0x00;
@@ -31,6 +37,15 @@ char cStatus;
     function is executing. */
     uxArraySize = uxTaskGetNumberOfTasks();
 
+    // httpdStartResponse(conn, 200); 
+    // httpdHeader(conn, "Content-Type", "application/json");
+    // httpdEndHeaders(conn);
+
+    // httpdPrintf(conn, "{ ");
+    // httpdPrintf(conn, "\"free_mem\": %d, ", esp_get_free_heap_size());
+
+
+    // httpdPrintf(conn, "\"task\": [");
     /* Allocate an array index for each task.  NOTE!  If
     configSUPPORT_DYNAMIC_ALLOCATION is set to 0 then pvPortMalloc() will
     equate to NULL. */
@@ -74,15 +89,15 @@ char cStatus;
 				can be printed in tabular form more easily. */
 				// pcWriteBuffer = prvWriteNameToBuffer( pcWriteBuffer, pxTaskStatusArray[ x ].pcTaskName );
  				// sprintf( pcWriteBuffer, "%16s", 
- 				if(x != 0) HTTPD_PRINTF(",");
+ 				if(x != 0) httpdPrintf(conn, ",");
                  
-                HTTPD_PRINTF("{ \"name\": \"%s\",", 
+                httpdPrintf(conn, "{ \"name\": \"%s\",", 
                     pxTaskStatusArray[ x ].pcTaskName );
 				// pcWriteBuffer += strlen( pcWriteBuffer );
 
 				/* Write the rest of the string. */
 				// sprintf( pcWriteBuffer, " %c %2u %6u %2u %3hd", 
-				HTTPD_PRINTF("\"state\": \"%c\", \"pri\": %u, \"stack\": %u,  \"num\": %u, \"core\": %hd, ", 
+				httpdPrintf(conn, "\"state\": \"%c\", \"pri\": %u, \"stack\": %u,  \"num\": %u, \"core\": %hd, ", 
                     cStatus, 
                     ( unsigned int ) pxTaskStatusArray[ x ].uxCurrentPriority, 
                     ( unsigned int ) pxTaskStatusArray[ x ].usStackHighWaterMark, 
@@ -104,7 +119,7 @@ char cStatus;
                         printf() library can be used. */
                         // sprintf( pcWriteBuffer, "\t%lu\t\t%lu%%\r\n", pxTaskStatusArray[ x ].ulRunTimeCounter, ulStatsAsPercentage );
                         // sprintf( pcWriteBuffer, " %12u %2u%%\r\n", 
-                        HTTPD_PRINTF("\"count\": %u, \"pct\": %u }", 
+                        httpdPrintf(conn, "\"count\": %u, \"pct\": %u }", 
                             ( unsigned int ) pxTaskStatusArray[ x ].ulRunTimeCounter, ( unsigned int ) ulStatsAsPercentage );
                 }
                 else
@@ -115,7 +130,7 @@ char cStatus;
                         printf() library can be used. */
                         // sprintf( pcWriteBuffer, "\t%lu\t\t<1%%\r\n", pxTaskStatusArray[ x ].ulRunTimeCounter );
                         // sprintf( pcWriteBuffer, " %12u <1%%\r\n", 
-                        HTTPD_PRINTF("\"count\": %u, \"pct\": %u }",
+                        httpdPrintf(conn, "\"count\": %u, \"pct\": %u }",
                             ( unsigned int ) pxTaskStatusArray[ x ].ulRunTimeCounter, ( unsigned int ) 0);
                 }
 
@@ -130,4 +145,8 @@ char cStatus;
         is 0 then vPortFree() will be #defined to nothing. */
         vPortFree( pxTaskStatusArray );
     }
+
+    // httpdPrintf(conn, "] }");
+
+    return 1;
 }

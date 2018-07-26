@@ -16,28 +16,27 @@
  * 22-AUG-17 reopen tty at EOF from input redirection
  * 03-MAY-18 improved accuracy
  * 03-JUL-18 implemented baud rate for terminal SIO
-*/
+ * 13-JUL-18 use logging
+ * 14-JUL-18 integrate webfrontend
+ */
 
 #include <unistd.h>
 #include <stdio.h>
 #include <ctype.h>
 #include <errno.h>
-#ifndef ESP_PLATFORM
 #include <sys/poll.h>
-#endif //ESP_PLATFORM
 #include <sys/time.h>
 #include "sim.h"
 #include "simglb.h"
 #include "unix_terminal.h"
-
-#ifdef ESP_PLATFORM
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-extern QueueHandle_t sendQueue;
-extern QueueHandle_t recvQueue;
-#endif //ESP_PLATFORM
+#ifdef HAS_NETSERVER
+#include "netsrv.h"
+#endif
+#include "log.h"
 
 #define BAUDTIME 10000000
+
+static const char *TAG = "SIO";
 
 int sio1_upper_case;
 int sio1_strip_parity;
@@ -61,9 +60,7 @@ BYTE imsai_sio1_status_in(void)
 {
 	extern int time_diff(struct timeval *, struct timeval *);
 
-#ifndef ESP_PLATFORM
 	struct pollfd p[1];
-#endif //ESP_PLATFORM
 	int tdiff;
 
 	gettimeofday(&t2, NULL);
@@ -72,7 +69,15 @@ BYTE imsai_sio1_status_in(void)
 		if ((tdiff >= 0) && (tdiff < BAUDTIME/sio1_baud_rate))
 			return(status);
 
-#ifndef ESP_PLATFORM
+#ifdef HAS_NETSERVER
+	if (net_device_alive(DEV_SIO1)) {
+		if (net_device_poll(DEV_SIO1)) {
+			status |= 2;
+		}
+		status |= 1;
+	} else 
+#endif
+	{
 	p[0].fd = fileno(stdin);
 	p[0].events = POLLIN | POLLOUT;
 	p[0].revents = 0;
@@ -81,20 +86,7 @@ BYTE imsai_sio1_status_in(void)
 		status |= 2;
 	if (p[0].revents & POLLOUT)
 		status |= 1;
-#else
-	status = 0;
-	int ch = fgetc(stdin);
-	if(ch != EOF) {
-		ungetc(ch, stdin);
-		status |= 2;
 	}
-	if(recvQueue != NULL)
-	if(uxQueueMessagesWaiting(recvQueue) > 0) {
-		// ESP_LOGI(__func__, "CHARACTERS WAITING");
-		status |= 2;		
-	}
-	status |= 1;
-#endif //ESP_PLATFORM
 
 	gettimeofday(&t1, NULL);
 		
@@ -117,38 +109,37 @@ void imsai_sio1_status_out(BYTE data)
  */
 BYTE imsai_sio1_data_in(void)
 {
-	int data = -1;
+	BYTE data;
 	static BYTE last;
-#ifndef ESP_PLATFORM
 	struct pollfd p[1];
 
+#ifdef HAS_NETSERVER
+	if (net_device_alive(DEV_SIO1)) {
+		int res = net_device_get(DEV_SIO1);
+		if (res < 0) {
+			LOGW(TAG, "NOTHING WAITING"); // should not get here
+			return(last);
+		}
+		data = res;
+	} else 
+#endif
+	{
 again:
-	/* if no input waiting return last */
-	p[0].fd = fileno(stdin);
-	p[0].events = POLLIN;
-	p[0].revents = 0;
-	poll(p, 1, 0);
-	if (!(p[0].revents & POLLIN))
-		return(last);
+		/* if no input waiting return last */
+		p[0].fd = fileno(stdin);
+		p[0].events = POLLIN;
+		p[0].revents = 0;
+		poll(p, 1, 0);
+		if (!(p[0].revents & POLLIN))
+			return(last);
 
-	if (read(fileno(stdin), &data, 1) == 0) {
-		/* try to reopen tty, input redirection exhausted */
-		freopen("/dev/tty", "r", stdin);
-		set_unix_terminal();
-		goto again;
-#else
-	if(sendQueue != NULL) {
-		if(uxQueueMessagesWaiting(recvQueue) > 0) {
-			xQueueReceive(recvQueue, &data, portMAX_DELAY);	
-			ESP_LOGD(__func__, "RECIEVED: [%d]", data);
-		} 
+		if (read(fileno(stdin), &data, 1) == 0) {
+			/* try to reopen tty, input redirection exhausted */
+			freopen("/dev/tty", "r", stdin);
+			set_unix_terminal();
+			goto again;
+		}
 	}
-	if(data == -1) {
-		data = fgetc(stdin);
-		if(data == EOF) 
-			return (last);
-	}
-#endif //ESP_PLATFORM
 
 	gettimeofday(&t1, NULL);
 	status &= 0b11111101;
@@ -175,29 +166,24 @@ void imsai_sio1_data_out(BYTE data)
 		if (data == 0)
 			return;
 
-#ifndef ESP_PLATFORM
+#ifdef HAS_NETSERVER
+	if (net_device_alive(DEV_SIO1)) {
+		net_device_send(DEV_SIO1, (char *) &data, 1);
+	} else 
+#endif
+	{
 again:
-	if (write(fileno(stdout), (char *) &data, 1) != 1) {
-		if (errno == EINTR) {
-			goto again;
-		} else {
-			perror("write imsai sio2 data");
-			cpu_error = IOERROR;
-			cpu_state = STOPPED;
+		if (write(fileno(stdout), (char *) &data, 1) != 1) {
+			if (errno == EINTR) {
+				goto again;
+			} else {
+				LOGE(TAG, "can't write data");
+				cpu_error = IOERROR;
+				cpu_state = STOPPED;
+			}
 		}
 	}
-#else
-	int sendData = data;
-	if(sendQueue != NULL) {
-		ESP_LOGD(__func__, "SENDING: [%d]", sendData);
-		xQueueSend(sendQueue, &sendData, portMAX_DELAY);
-	}
-	if (fputc(data, stdout) == EOF) {
-		perror("write imsai sio2 data");
-		cpu_error = IOERROR;
-		cpu_state = STOPPED;
-	}
-#endif //ESP_PLATFORM
+
 	gettimeofday(&t1, NULL);
 	status &= 0b11111110;
 }

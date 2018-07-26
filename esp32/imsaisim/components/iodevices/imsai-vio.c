@@ -14,6 +14,9 @@
  * 04-FEB-17 added function to terminate thread and close window
  * 21-FEB-17 added scanlines to monitor
  * 20-APR-18 avoid thread deadlock on Windows/Cygwin
+ * 07-JUL-18 optimization
+ * 12-JUL-18 use logging
+ * 14-JUL-18 integrate webfrontend
 */
 
 #ifndef ESP_PLATFORM
@@ -21,11 +24,6 @@
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 #include <pthread.h>
-#else
-#include "esp_log.h"
-static const char* TAG = "VIO";
-#include "libesphttpd/esp.h"
-#include "esp32_netsrv.h"
 #endif //!ESP_PLATFORM
 #include <stdlib.h>
 #include <stdio.h>
@@ -34,12 +32,20 @@ static const char* TAG = "VIO";
 #include "simglb.h"
 #include "frontpanel.h"
 #include "memory.h"
+#ifdef HAS_NETSERVER
+#include "netsrv.h"
+#endif
+#include "log.h"
 #ifndef ESP_PLATFORM
 #include "imsai-vio-charset.h"
-#endif //!ESP_PLATFORM
+#else 
+#include "esp_timer.h"
+#endif
 
 #define XOFF 10				/* use some offset inside the window */
 #define YOFF 15				/* for the drawing area */
+
+static const char *TAG = "VIO";
 
 #ifndef ESP_PLATFORM
 /* X11 stuff */
@@ -65,7 +71,8 @@ static char text[10];
 
 /* VIO stuff */
 static int state;			/* state on/off for refresh thread */
-static int mode;			/* Video mode written to command port */
+static int mode;		/* video mode written to command port memory */
+static int modebuf;			/* and double buffer for it */
 static int vmode, res, inv;		/* video mode, resolution & inverse */
 int imsai_kbd_status, imsai_kbd_data;	/* keyboard status & data */
 
@@ -140,7 +147,6 @@ void imsai_vio_off(void)
 		XUnlockDisplay(display);
 		XCloseDisplay(display);
 	}
-#else
 #endif //!ESP_PLATFORM
 }
 
@@ -269,7 +275,7 @@ static inline void event_handler(void)
 
 #ifndef ESP_PLATFORM
 	/* if there is a keyboard event get it and convert with keymap */
-	if (XEventsQueued(display, QueuedAlready) > 0) {
+	if (display != NULL && XEventsQueued(display, QueuedAlready) > 0) {
 		XNextEvent(display, &event);
 		if ((event.type == KeyPress) &&
 		    XLookupString(&event.xkey, text, 1, &key, 0) == 1) {
@@ -277,16 +283,16 @@ static inline void event_handler(void)
 			imsai_kbd_status = 2;
 		}
 	}
-#else
-	if(VIOQueue != NULL) {
-		if(uxQueueMessagesWaiting(VIOQueue) > 0) {
-			xQueueReceive(VIOQueue, &imsai_kbd_data, portMAX_DELAY);	
-			imsai_kbd_status = 2;
-			ESP_LOGD(__func__, "VIO RECIEVED: [%d]", imsai_kbd_data);
-		} 
-	}
 #endif //!ESP_PLATFORM
-}
+
+#ifdef HAS_NETSERVER
+	int res = net_device_get(DEV_VIO);
+	if (res >= 0) {
+		imsai_kbd_data =  res;
+			imsai_kbd_status = 2;
+		} 
+#endif
+	}
 
 #ifndef ESP_PLATFORM
 /* refresh the display buffer dependend on video mode */
@@ -298,6 +304,10 @@ static void refresh(void)
 
 	sx = XOFF;
 	sy = YOFF;
+
+	mode = dma_read(0xf7ff);
+	if (mode != modebuf) {
+		modebuf = mode;
 
 	vmode = (mode >> 2) & 3;
 	res = mode & 3;
@@ -317,6 +327,7 @@ static void refresh(void)
 	} else {
 		rows = 24;
 		yscale = 1;
+	}
 	}
 
 	switch (vmode) {
@@ -366,74 +377,10 @@ static void refresh(void)
 		break;
 	}
 }
+#endif
 
-/* thread for updating the display */
-static void *update_display(void *arg)
-{
-	extern int time_diff(struct timeval *, struct timeval *);
-
-	struct timeval t1, t2;
-	int tdiff;
-
-	arg = arg;	/* to avoid compiler warning */
-	gettimeofday(&t1, NULL);
-
-	while (state) {
-
-		/* lock display, don't cancel thread while locked */
-		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
-		XLockDisplay(display);
-
-		/* update display window */
-		refresh();
-		XCopyArea(display, pixmap, window, gc, 0, 0,
-			  xsize, ysize, 0, 0);
-		XSync(display, False);
-
-		/* unlock display, thread can be canceled again */
-		XUnlockDisplay(display);
-		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
-
-		/* sleep rest to 33ms so that we get 30 fps */
-		gettimeofday(&t2, NULL);
-		tdiff = time_diff(&t1, &t2);
-		if ((tdiff > 0) && (tdiff < 33000))
-			SLEEP_MS(33 - (tdiff / 1000));
-
-		gettimeofday(&t1, NULL);
-	}
-
-	pthread_exit(NULL);
-}
-#endif //!ESP_PLATFORM
-
-/* create the X11 window and start display refresh thread */
-void imsai_vio_init(void)
-{
-#ifndef ESP_PLATFORM
-	open_display();
-
-	state = 1;
-
-	if (pthread_create(&thread, NULL, update_display, (void *) NULL)) {
-		printf("can't create VIO thread\r\n");
-		exit(1);
-	}
-#else
-	state = 1;
-	ESP_LOGI(TAG, "VIO Initialised");
-#endif //!ESP_PLATFORM
-}
-
-/* take over command word from memory mapped port */
-void imsai_vio_ctrl(BYTE data)
-{
-	mode = data;
-}
-
-#ifdef	ESP_PLATFORM
+#ifdef HAS_NETSERVER
 static uint8_t dblbuf[2048];
-static uint8_t mode2 = 0xFF;
 
 static struct {
 	uint16_t addr;
@@ -444,15 +391,16 @@ static struct {
 	uint8_t buf[2048];
 } msg;
 
-static void wsRefresh() {
+static void ws_refresh(void) {
 	static int cols, rows;
 
-	vmode = vmode;
-	inv = inv;
+	UNUSED(vmode);
+	UNUSED(inv);
 
 	mode = peek(0xf7ff);
-	if(mode != mode2) {
-		mode2 = mode;
+	if (mode != modebuf) {
+		modebuf = mode;
+		memset(dblbuf, 0, 2048);
 
 		res = mode & 3;
 
@@ -470,8 +418,8 @@ static void wsRefresh() {
 
 		msg.mode = mode;
 		msg.addr = 0xf7ff;
-		vioSend((char *) &msg, 4);
-		ESP_LOGD(TAG, "MODE change");
+		net_device_send(DEV_VIO, (char *) &msg, 4);
+		LOGD(__func__, "MODE change");
 	}
 
 	event_handler();
@@ -482,50 +430,53 @@ static void wsRefresh() {
 	bool cont;
 	uint8_t val;
 
-	for(i=0; i<len;i++) {
+	for (i=0; i<len;i++) {
 		addr = i;
 		n=0;
 		cont = true;
-		while(cont && (i<len)) {
+		while (cont && (i<len)) {
 			val=peek(0xf000 + i);
-			while((val != dblbuf[i]) && (i<len)) {
+			while ((val != dblbuf[i]) && (i<len)) {
 				dblbuf[i++] = val;
 				msg.buf[n++] = val;
 				cont = false;
 				val=peek(0xf000 + i);
 			}
-			if(cont) break;
+			if (cont) break;
 			x=0;
-			//look-ahead up to 4 bytes for next change
-			while((x<4) && !cont && (i<len)) {
+#define LOOKAHEAD 4
+			/* look-ahead up to 4 bytes for next change */
+			while ((x<LOOKAHEAD) && !cont && (i<len)) {
 				val=peek(0xf000 + i++);
 				msg.buf[n++] = val;
 				val=peek(0xf000 + i);
-				if((i<len) && (val != dblbuf[i])) {
+				if ((i<len) && (val != dblbuf[i])) {
 					cont = true;
 				}
 				x++;
 			}
-			if(!cont) {
+			if (!cont) {
 				n -= x;
-				// i -= x;
 			}
 		}
-		if(n) {
+		if (n) {
 			msg.addr = 0xf000 + addr;
 			msg.len = n;
-			vioSend((char *) &msg, msg.len + 4);
-			ESP_LOGD(TAG, "BUF update FROM %04X TO %04X", msg.addr, msg.addr + msg.len);
+			net_device_send(DEV_VIO, (char *) &msg, msg.len + 4);
+			LOGD(TAG, "BUF update FROM %04X TO %04X", msg.addr, msg.addr + msg.len);
 		}
 	}
 }
+#endif
 
+#ifdef ESP_PLATFORM
 void wsRefreshTask() {
 	int64_t t1, t2, tdiff;
 	int64_t f1, f2, tt;
 	int i;
 	int f = 0;
 
+	// memset(dblbuf, 0, 2048);
 	for(i=0; i<2048; i++) dblbuf[i] = 0x00;
 
 	f2 = f1 = t1 = esp_timer_get_time();
@@ -536,7 +487,7 @@ void wsRefreshTask() {
 	while (1) {	/* do forever or until canceled */
 
 		/* update display window */
-		wsRefresh();
+		ws_refresh();
 
 		/* compute time used for processing */
 		t2 = esp_timer_get_time();
@@ -553,13 +504,84 @@ void wsRefreshTask() {
 			f2 = esp_timer_get_time();
 			tt = (f2 - f1) / 1000;
 
-			ESP_LOGI(TAG, "Framerate = %d", f*1000/tt);
+			ESP_LOGD(TAG, "Framerate = %d", f*1000/tt);
 
 			f = 0;
 			f1 = esp_timer_get_time();
 		}
-#endif
+#endif //DEBUG
 	}
-
 }
 #endif //ESP_PLATFORM
+
+#ifndef ESP_PLATFORM
+/* thread for updating the display */
+static void *update_display(void *arg)
+{
+	extern int time_diff(struct timeval *, struct timeval *);
+
+	struct timeval t1, t2;
+	int tdiff;
+
+	arg = arg;	/* to avoid compiler warning */
+	gettimeofday(&t1, NULL);
+
+	while (state) {
+
+#ifndef HAS_NETSERVER
+		/* lock display, don't cancel thread while locked */
+		pthread_setcancelstate(PTHREAD_CANCEL_DISABLE, NULL);
+		XLockDisplay(display);
+
+		/* update display window */
+		refresh();
+		XCopyArea(display, pixmap, window, gc, 0, 0,
+			  xsize, ysize, 0, 0);
+		XSync(display, False);
+
+		/* unlock display, thread can be canceled again */
+		XUnlockDisplay(display);
+		pthread_setcancelstate(PTHREAD_CANCEL_ENABLE, NULL);
+#else
+		UNUSED(refresh);
+		ws_refresh();
+
+#endif
+		/* sleep rest to 33ms so that we get 30 fps */
+		gettimeofday(&t2, NULL);
+		tdiff = time_diff(&t1, &t2);
+		if ((tdiff > 0) && (tdiff < 33000))
+			SLEEP_MS(33 - (tdiff / 1000));
+
+		gettimeofday(&t1, NULL);
+	}
+
+	pthread_exit(NULL);
+	}
+#endif
+
+/* create the X11 window and start display refresh thread */
+void imsai_vio_init(void)
+{
+#ifndef HAS_NETSERVER
+	open_display();
+#else
+#ifndef ESP_PLATFORM
+	UNUSED(open_display);
+#endif
+#endif
+
+	state = 1;
+	modebuf = -1;
+	dma_write(0xf7ff, 0x00);
+
+#ifndef ESP_PLATFORM
+	if (pthread_create(&thread, NULL, update_display, (void *) NULL)) {
+		LOGE(TAG, "can't create thread");
+		exit(1);
+	}
+#else
+	state = 1;
+	ESP_LOGI(TAG, "VIO Initialised");
+#endif //!ESP_PLATFORM
+}

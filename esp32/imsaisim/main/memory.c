@@ -1,7 +1,8 @@
 /*
  * Z80SIM  -  a Z80-CPU simulator
  *
- * Copyright (C) 2016-2017 by Udo Munk
+ * Copyright (C) 2016-2018 by Udo Munk
+ * Copyright (C) 2018 David McNaughton
  *
  * This module implements the memory for an IMSAI 8080 system
  *
@@ -9,6 +10,9 @@
  * 19-DEC-2016 stuff moved to here for better memory abstraction
  * 30-DEC-2016 implemented 1 KB page table and setup for that
  * 26-JAN-2017 initialise ROM with 0xff
+ * 04-JUL-2018 optimization
+ * 07-JUL-2018 implemended banked ROM/RAM
+ * 12-JUL-2018 use logging
  */
 
 #include "stdio.h"
@@ -17,6 +21,10 @@
 #include "config.h"
 #include "frontpanel.h"
 #include "memory.h"
+// #define LOG_LOCAL_LEVEL LOG_DEBUG
+#include "log.h"
+
+static const char *TAG = "memory";
 
 /* 64KB non banked memory */
 BYTE memory[64<<10];
@@ -34,12 +42,9 @@ static BYTE groupsel;
 int p_tab[64];		/* 64 pages a 1 KB */
 
 void groupswap() {
-#ifdef DEBUG
-	printf("\r\nMPU-B Banked ROM/RAM group select %02X\r\n", groupsel);
-#endif
-	ESP_LOGI(__func__, "MPU-B Banked ROM/RAM group select %02X", groupsel);
+	LOGD(TAG, "MPU-B Banked ROM/RAM group select %02X", groupsel);
 
-	if(groupsel & _GROUP0) {
+	if (groupsel & _GROUP0) {
 		rdrvec[0] = &memory[0x0000];
 		rdrvec[1] = &memory[0x0400];
 	} else {
@@ -47,7 +52,7 @@ void groupswap() {
 		rdrvec[1] = &mpubrom[0x0400];
 	}
 
-	if(groupsel & _GROUP1) {
+	if (groupsel & _GROUP1) {
 		rdrvec[52] = &memory[52<<10];
 		// rdrvec[53] = &memory[53<<10];
 		wrtvec[52] = &memory[52<<10];
@@ -94,7 +99,7 @@ void init_memory(void)
 #ifdef HAS_BANKED_ROM
 	if(r_flag) {
 		groupsel = _GROUPINIT;
-		printf("MPU-B Banked ROM/RAM enabled: group select %02X\n", groupsel);
+		LOG(TAG, "MPU-B Banked ROM/RAM enabled\r\n");
 	} else {
 		groupsel = _GROUP0 | _GROUP1;
 	}
@@ -112,6 +117,8 @@ void init_memory(void)
 	/* set F800 - FFFF to ROM, this is the VIO firmware ROM */
 	MEM_RESERVE_ROM(62);
 	MEM_RESERVE_ROM(63);
+
+	LOG(TAG, "\r\n");
 }
 
 void reset_memory(void) {
@@ -144,10 +151,10 @@ void init_rom(void)
 	}
 }
 
-void ctrl_port_out(BYTE data) {
-
+void ctrl_port_out(BYTE data)
+{
 #ifdef HAS_BANKED_ROM
-	if(r_flag) {
+	if (r_flag) {
 		groupsel = data;
 		cyclecount = 3;
 	}
@@ -156,8 +163,8 @@ void ctrl_port_out(BYTE data) {
 #endif
 }
 
-BYTE ctrl_port_in(void) {
-
+BYTE ctrl_port_in(void)
+{
 #ifdef HAS_BANKED_ROM
 	if(r_flag) {
 		groupsel = _GROUP0 | _GROUP1;

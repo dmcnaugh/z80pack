@@ -4,7 +4,7 @@
 #undef USR_COM
 #undef USR_REL
 #undef USR_CPR
-#undef HAS_DAZZLER      // Remove references to Cromemeco Dazzler IO device
+// #undef HAS_DAZZLER      // Remove references to Cromemeco Dazzler IO device
 #define IMSAI_VIO    // Remove references to IMSAI VIO device
 
 #define USR_COM	"ESP32 IMSAI 8080 Simulation"

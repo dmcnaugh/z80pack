@@ -29,8 +29,10 @@ CgiStatus cgiEspVfsDir(HttpdConnData *connData) {
 	if (pDir==NULL) {
 		if (connData->cgiArg != NULL) {
 			strncpy(filename, connData->cgiArg, CONFIG_FATFS_MAX_LFN);
-		} 
-		strncat(filename, connData->url, CONFIG_FATFS_MAX_LFN - strlen(filename));
+            if(filename[strlen(filename) - 1] == '/') filename[strlen(filename) - 1] = '\0';
+		} else {
+		    strncat(filename, connData->url, CONFIG_FATFS_MAX_LFN - strlen(filename));
+        }
 		ESP_LOGI(__func__, "GET: %s", filename);
         pDir = opendir(filename);
         if (pDir == NULL) {

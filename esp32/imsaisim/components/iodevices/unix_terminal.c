@@ -18,13 +18,11 @@
 
 #include <unistd.h>
 #ifdef ESP_PLATFORM
-#include "esp_vfs_dev.h"
 #include "fcntl.h"
 #endif //ESP_PLATFORM
 #include <termios.h>
 
 struct termios old_term, new_term;
-
 
 static int init_flag;
 
@@ -34,10 +32,6 @@ void set_unix_terminal(void)
 		return;
 
 #ifdef ESP_PLATFORM
-	// esp_vfs_dev_uart_use_nonblocking(CONFIG_CONSOLE_UART_NUM);
-	// esp_vfs_dev_uart_set_rx_line_endings(ESP_LINE_ENDINGS_LF);
-	// setlinebuf(stdin);
-	// setlinebuf(stdout);
 	int flags = fcntl(STDIN_FILENO, F_GETFL);
     flags |= O_NONBLOCK;
     fcntl(STDIN_FILENO, F_SETFL, flags);
@@ -78,10 +72,6 @@ void reset_unix_terminal(void)
 		return;
 
 #ifdef ESP_PLATFORM
-	// esp_vfs_dev_uart_use_driver(CONFIG_CONSOLE_UART_NUM);
-	// esp_vfs_dev_uart_set_rx_line_endings(ESP_LINE_ENDINGS_CR);
-	// setvbuf(stdin, NULL, _IONBF, 0);
-	// setvbuf(stdout, NULL, _IONBF, 0);
     int flags = fcntl(STDIN_FILENO, F_GETFL);
     flags &= ~O_NONBLOCK;
     fcntl(STDIN_FILENO, F_SETFL, flags);	

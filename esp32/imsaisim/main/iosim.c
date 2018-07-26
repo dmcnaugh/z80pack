@@ -20,7 +20,9 @@
   * 24-APR-18 cleanup
  * 17-MAY-18 improved hardware control
  * 08-JUN-18 moved hardware initialisation and reset to iosim
-*/
+ * 12-JUL-18 use logging
+ * 14-JUL-18 integrate webfrontend
+ */
 
 #include <unistd.h>
 #ifndef ESP_PLATFORM
@@ -29,11 +31,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <errno.h>
-#ifdef ESP_PLATFORM
-#include "freertos/FreeRTOS.h"
-#include "freertos/queue.h"
-extern QueueHandle_t printQueue;
-#endif //ESP_PLATFORM
 #include <signal.h>
 #include <fcntl.h>
 #include <sys/time.h>
@@ -42,14 +39,17 @@ extern QueueHandle_t printQueue;
 #include "imsai-sio2.h"
 #include "imsai-fif.h"
 #ifdef HAS_DAZZLER
-#include "../../iodevices/cromemco-dazzler.h"
+#include "cromemco-dazzler.h"
 #endif //HAS_DAZZLER
 #ifdef IMSAI_VIO
-// #include "../../iodevices/imsai-vio.h"
 #include "imsai-vio.h"
 #endif //IMSAI_VIO
 #include "frontpanel.h"
 #include "memory.h"
+#ifdef HAS_NETSERVER
+#include "netsrv.h"
+#endif
+#include "log.h"
 
 /*
  *	Forward declarations for I/O functions
@@ -74,6 +74,7 @@ static BYTE imsai_kbd_data_in(void), imsai_kbd_status_in(void);
 
 extern void ctrl_port_out(BYTE);
 extern BYTE ctrl_port_in(void);
+static const char *TAG = "IO";
 
 static int printer;		/* fd for file "printer.txt" */
 BYTE hwctl_lock = 0xff;		/* lock status hardware control port */
@@ -383,8 +384,8 @@ static void (*port_out[256]) (BYTE) = {
 	cromemco_dazzler_ctl_out,	/* port 14 */
 	cromemco_dazzler_format_out,	/* port 15 */
 #else
-	io_trap_out, 		/* port 14 */
-	io_trap_out, 		/* port 15 */
+	io_trap_out,		/* port 14 */
+	io_trap_out,		/* port 15 */
 #endif //HAS_DAZZLER
 	io_trap_out,		/* port 16 */
 	io_trap_out,		/* port 17 */
@@ -637,20 +638,20 @@ static void (*port_out[256]) (BYTE) = {
  *	It will be called from the CPU simulation before
  *	any operation with the CPU is possible.
  */
-extern void readDiskmap(void);
-
 void init_io(void)
 {
-	readDiskmap();
 	/* initialise IMSAI VIO if firmware is loaded */
 	if (!strncmp((char *) mem_base() + 0xfffd, "VI0", 3)) {
 		imsai_vio_init();
 	} else {
+		/* if no VIO firmware loaded release the ROM and RAM */
 		MEM_RELEASE(60);
 		MEM_RELEASE(61);
 		MEM_RELEASE(62);
 		MEM_RELEASE(63);
 	}
+
+	imsai_fif_reset();
 }
 
 /*
@@ -939,13 +940,8 @@ void lpt_close(void) {
 
 static void lpt_out(BYTE data)
 {
-#ifdef ESP_PLATFORM
-	if(printQueue != NULL) {
-		xQueueSend(printQueue, &data, portMAX_DELAY);
-	}
-#endif //ESP_PLATFORM
 	if ((printer == 0) && !(data & 0x80))
-		// printer = creat(PRINT_FILE, 0664);
+		// printer = creat("printer.txt", 0664);
 		printer = open(PRINT_FILE, O_WRONLY, O_CREAT | O_APPEND);
 
 	if ((data != '\r') && !(data & 0x80)) {
@@ -954,11 +950,15 @@ again:
 			if (errno == EINTR) {
 				goto again;
 			} else {
-				perror("write printer");
+				LOGE(TAG, "can't write to printer");
 				cpu_error = IOERROR;
 				cpu_state = STOPPED;
 			}
 		}
+
+#ifdef HAS_NETSERVER
+		net_device_send(DEV_LPT, (char *) &data, 1);
+#endif
 	}
 }
 
