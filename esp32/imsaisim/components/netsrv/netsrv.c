@@ -44,6 +44,9 @@
 static const char *TAG = "netsrv";
 
 static QueueHandle_t queue[MAX_WS_CLIENTS];
+static QueueHandle_t qout[MAX_WS_CLIENTS];
+static TaskHandle_t dev_task[MAX_WS_CLIENTS];
+static TaskHandle_t send_task[MAX_WS_CLIENTS];
 
 // static msgbuf_t msg;
 
@@ -93,8 +96,12 @@ void net_device_send(net_device_t device, char* msg, int len) {
 			msg, len);
 #else 
         LOGD(TAG, "WS SEND: device: %d data: [%s]", device, msg);
-        // cgiWebsockBroadcast(&httpI.httpdInstance, "/sio1", msg, 1, (len==1)?WEBSOCK_FLAG_NONE:WEBSOCK_FLAG_BIN);
-        cgiWebsocketSend(&httpI.httpdInstance, (Websock *)ws_clients[device].ws, msg, len, (len==1)?WEBSOCK_FLAG_NONE:WEBSOCK_FLAG_BIN);
+        if (qout[device] != NULL) {
+            xQueueSend(qout[device], msg, portMAX_DELAY);
+        } else {
+            // cgiWebsockBroadcast(&httpI.httpdInstance, "/sio1", msg, 1, (len==1)?WEBSOCK_FLAG_NONE:WEBSOCK_FLAG_BIN);
+            cgiWebsocketSend(&httpI.httpdInstance, (Websock *)ws_clients[device].ws, msg, len, (len==1)?WEBSOCK_FLAG_NONE:WEBSOCK_FLAG_BIN);
+        }
 #endif
 	}
 }
@@ -373,7 +380,7 @@ CgiStatus   cgiConfig(HttpdConnection_t *conn) {
     return configHandler(conn, (char *)conn->cgiArg);
 }
 
-static TaskHandle_t vioRefresh = NULL;
+// static TaskHandle_t vioRefresh = NULL;
 extern void wsRefreshTask();
 
 static void wsStopDEV(Websock *ws) {
@@ -381,16 +388,28 @@ static void wsStopDEV(Websock *ws) {
 
     // if (wsSend != NULL) { vTaskDelete(wsSend); wsSend = NULL; };
     // if (sendQueue != NULL) { vQueueDelete(sendQueue); sendQueue = NULL; };
-    if(device == DEV_VIO) {
-        if (vioRefresh != NULL) { 
-            vTaskDelete(vioRefresh); 
-            vioRefresh = NULL; 
-        };
-    };
+    // if(device == DEV_VIO) {
+    //     if (vioRefresh != NULL) { 
+    //         vTaskDelete(vioRefresh); 
+    //         vioRefresh = NULL; 
+    //     };
+    // };
 
+    if (send_task[device] != NULL) {
+        vTaskDelete(send_task[device]); 
+        send_task[device] = NULL; 
+    }
+    if (dev_task[device] != NULL) {
+        vTaskDelete(dev_task[device]); 
+        dev_task[device] = NULL; 
+    }
     if (queue[device] != NULL) { 
         vQueueDelete(queue[device]); 
         queue[device] = NULL; 
+    };
+    if (qout[device] != NULL) { 
+        vQueueDelete(qout[device]); 
+        qout[device] = NULL; 
     };
     ws_clients[device].ws = NULL;
     ESP_LOGI(__func__, "WS CLIENT CLOSED %s", dev_name[device]);
@@ -410,6 +429,20 @@ static void wsRecvDEV(Websock *ws, char *data, int len, int flags) {
     }
 }
 
+static void wsSendTask(void *dev) {
+    net_device_t device = (net_device_t) dev;
+    ESP_LOGI(__func__, "WS DEV==(%d)", device);
+
+    while(true) {
+        char data;
+        ESP_LOGD(__func__, "WS (%d)", device);
+        xQueueReceive(qout[device], &data, portMAX_DELAY);
+        ESP_LOGD(__func__, "WS %s SEND: [%d]", dev_name[device], data);
+        cgiWebsocketSend(&httpI.httpdInstance, (Websock *)ws_clients[device].ws, (char *) &data, 1, WEBSOCK_FLAG_NONE);
+        // cgiWebsockBroadcast(&httpI.httpdInstance, "/sio1", (char *) &data, 1, WEBSOCK_FLAG_NONE);
+    };
+}
+
 static void wsConnDEV(Websock *ws) {
     net_device_t device = (net_device_t)ws->conn->cgiArg2;
     
@@ -426,23 +459,45 @@ static void wsConnDEV(Websock *ws) {
         case DEV_VIO:
         case DEV_LPT:
         case DEV_DZLR:
-            queue[device] = xQueueCreate(30, sizeof(char));
+            queue[device] = xQueueCreate(10, sizeof(char));
             if (queue[device] == NULL) {
-                ESP_LOGE(__func__, "WS RECV QUEUE CREATE FAILED");
+                ESP_LOGE(__func__, "WS RECV QUEUE CREATE FAILED for %s", dev_name[device]);
+            } else {
+                ESP_LOGI(__func__, "WS RECV QUEUE CREATE SUCCEED for %s", dev_name[device]);
             }
             break;
         default:
             break;
-        }
+    }
+
+    switch (device) {
+        case DEV_SIO1:
+        case DEV_LPT:
+            qout[device] = xQueueCreate(85, sizeof(char));
+            if (qout[device] == NULL) {
+                ESP_LOGE(__func__, "WS SEND QUEUE CREATE FAILED for %s", dev_name[device]);
+            } else {
+                ESP_LOGD(__func__, "WS SEND QUEUE CREATE SUCCEED for %s", dev_name[device]);
+            }
+            xTaskCreatePinnedToCore(wsSendTask, "wsSendTask", 2000, ws->conn->cgiArg2, ESP_TASK_MAIN_PRIO + 5 - (int) device, &send_task[device], 0);
+            if (send_task[device] == NULL) {
+                ESP_LOGE(__func__, "WS SEND TASK CREATE FAILED");
+            } else {
+                ESP_LOGD(__func__, "WS SEND TASK CREATE SUCCEED");
+            }
+            break;
+        default:
+            break;
+    }
 
     if(device == DEV_SIO1) {
         cgiWebsocketSend(&httpI.httpdInstance, ws, "Connected to ESP32 IMSAI 8080 Simulation\n\r", 42, WEBSOCK_FLAG_NONE);
     };
 
     if (device == DEV_VIO) {
-        xTaskCreatePinnedToCore(wsRefreshTask, "vioRefreshTask", 2000, NULL, ESP_TASK_MAIN_PRIO + 5, &vioRefresh, 0);
-        if (vioRefresh == NULL) 
-            ESP_LOGE(TAG, "WS VIO REFREASH TASK CREATE FAILED");
+        xTaskCreatePinnedToCore(wsRefreshTask, "vioRefreshTask", 2000, NULL, ESP_TASK_MAIN_PRIO + 6, &dev_task[device], 0);
+        if (dev_task[device] == NULL) 
+            ESP_LOGE(TAG, "WS VIO REFRESH TASK CREATE FAILED");
 
 	// 	BYTE mode = peek(0xf7ff);
 	// 	poke(0xf7ff, 0x00);
