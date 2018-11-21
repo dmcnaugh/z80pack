@@ -57,10 +57,23 @@
 #ifdef ESP_PLATFORM
 #include "esp_timer.h"
 #endif //ESP_PLATFORM
+#include "log.h"
 
 #ifdef WANT_GUI
 void check_gui_break(void);
 #endif
+
+// long long time_us_diff(struct timeval *t1, struct timeval *t2)
+// {
+// 	long long sec, usec;
+
+// 	sec = (long long) t2->tv_sec - (long long) t1->tv_sec;
+// 	usec = (long long) t2->tv_usec - (long long) t1->tv_usec;
+// 	/* normalize result */
+// 	usec += sec * 1000000LL;
+
+// 	return(usec);
+// }
 
 static int op_nop(void), op_hlt(void), op_stc(void);
 static int op_cmc(void), op_cma(void), op_daa(void), op_ei(void), op_di(void);
@@ -408,6 +421,8 @@ void cpu_8080(void)
 
 	register int t = 0;
 	register int states;
+	long long tstates, tinstructions;
+
 #ifndef ESP_PLATFORM
 	struct timeval t1, t2;
 	int tdiff;
@@ -415,8 +430,12 @@ void cpu_8080(void)
 	gettimeofday(&t1, NULL);
 #else
 	int64_t t1, t2, tdiff;
+	int64_t tstart, tend;
 	t1 = esp_timer_get_time();
+	tstart = esp_timer_get_time();
 #endif //ESP_PLATFORM
+	tstates = 0;
+	tinstructions = 0;
 
 	do {
 
@@ -532,7 +551,8 @@ leave:
 		int_protection = 0;
 		states = (*op_sim[memrdr(PC++)]) (); /* execute next opcode */
 		t += states;
-		b_clk += states;
+		// b_clk += states;
+		tstates += states;
 
 		if (f_flag) {			/* adjust CPU speed */
 			if (t >= tmax) {
@@ -561,7 +581,8 @@ leave:
 			}
 		}
 
-		R++;			/* increment refresh register */
+		// R++;			/* increment refresh register */
+		tinstructions++;
 
 					/* do runtime measurement */
 #ifdef WANT_TIM
@@ -577,6 +598,11 @@ leave:
 #endif
 
 	} while (cpu_state == CONTIN_RUN);
+
+	tend = esp_timer_get_time();
+	LOGI(__func__, "CPU(end) ran for %lld ms", (tend - tstart));
+	LOGI(__func__, "Executed %lld instructions in %lld clock cycles", tinstructions, tstates);
+	LOGI(__func__, "Effective clock speed of %5.3f MHz", ((float) tstates) / (tend-tstart));
 
 #ifdef BUS_8080
 	if (!(cpu_bus & CPU_INTA))

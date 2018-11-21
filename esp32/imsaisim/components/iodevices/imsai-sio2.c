@@ -36,6 +36,8 @@
 
 #define BAUDTIME 10000000
 
+#define poll(a, b, c)  (void)0
+
 static const char *TAG = "SIO";
 
 int sio1_upper_case;
