@@ -70,7 +70,8 @@ void update_cpa(bool force) {
     cpa_status[4] = bus_request?'H':' ';
     cpa_status[5] = 0;
 	if(force || strncmp(cpa_status, last_cpa_status, 6)) {
-		net_device_send(DEV_CPA, cpa_status, 6);
+		ESP_LOGD(__func__, "Update CPA: [%s]", cpa_status);
+		net_device_send(DEV_CPA, cpa_status, 5);
 		strncpy(last_cpa_status, cpa_status, 6);
 	};
 };
@@ -185,6 +186,8 @@ void imsai_cpa_init(void) {
 #endif //ESP_PLATFORM
 }
 
+extern void stop_net_services(void);
+
 void imsai_cpa_quit(void) {
 
 #ifndef ESP_PLATFORM
@@ -198,6 +201,8 @@ void imsai_cpa_quit(void) {
 		ESP_ERROR_CHECK(esp_timer_stop(cpa_timer));
 		ESP_ERROR_CHECK(esp_timer_delete(cpa_timer));
 	}
+
+	stop_net_services();
 }
 
 /*
@@ -206,6 +211,62 @@ void imsai_cpa_quit(void) {
 static void draw_callback(void *arg)
 {
 	dirty++;
+}
+
+void check_net_switches(void) {
+
+	char sw, pos;
+
+	pos = 0;
+
+	if(net_device_poll(DEV_CPA)) {
+		sw = net_device_get(DEV_CPA);
+		ESP_LOGD(__func__, "CPA: %c", sw);
+
+		switch (sw) {
+		case 'P':
+			update_cpa(true);
+			break;
+        case 's':
+        case 'c':
+        case 'd':
+        case 'e':
+        case 'r':
+		case 'p':
+			if(net_device_poll(DEV_CPA)) {
+				pos = net_device_get(DEV_CPA);
+				ESP_LOGD(__func__, "CPA: %c%c", sw,pos);
+			}
+			break;
+        default:
+            ESP_LOGE(__func__, "CPA WS message error [%c]", sw);
+		}
+
+		switch (sw) {
+        case 's':
+			if(pos == 'u') key_switch |= 0x04;
+			if(pos == 'd') key_switch |= 0x08;
+			break;
+        case 'c':
+			if(pos == 'u') key_switch |= 0x40;
+			if(pos == 'd') key_switch |= 0x80;
+			break;
+        case 'd':
+			if(pos == 'u') key_switch |= 0x100;
+			if(pos == 'd') key_switch |= 0x200;
+			break;
+        case 'e':
+			if(pos == 'u') key_switch |= 0x400;
+			if(pos == 'd') key_switch |= 0x800;
+			break;
+        case 'r':
+			if(pos == 'u') key_switch |= 0x10;
+			if(pos == 'd') key_switch |= 0x20;
+			break;
+		default:
+			break;
+		}
+	}
 }
 
 void poll_switches(void) {
@@ -249,6 +310,8 @@ void poll_switches(void) {
 
 #endif //ESP_PLATFORM
 
+	if(! (key_switch & 0xFFC)) check_net_switches();
+
 	if(key_switch & 0x04) step_clicked(FP_SW_UP, 0);
 	if(key_switch & 0x08) step_clicked(FP_SW_DOWN, 0);
 	if(key_switch & 0x40) reset_clicked(FP_SW_UP, 0);
@@ -275,41 +338,6 @@ void poll_switches(void) {
 
 	// fp_sampleSwitches();
 
-}
-
-void net_switches(char *data) {
-	    switch (data[0]) {
-        case 's':
-            if(data[1] == 'u') step_clicked(FP_SW_UP, 0);
-            if(data[1] == 'd') step_clicked(FP_SW_UP, 0); 
-            break;          
-        case 'c':
-            if(data[1] == 'u') reset_clicked(FP_SW_UP, 0);
-            if(data[1] == 'd') reset_clicked(FP_SW_DOWN, 0);
-            break;          
-        case 'd':
-            if(data[1] == 'u') deposit_clicked(FP_SW_UP, 0);
-            if(data[1] == 'd') deposit_clicked(FP_SW_DOWN, 0); 
-            break;          
-        case 'e':
-            if(data[1] == 'u') examine_clicked(FP_SW_UP, 0);
-            if(data[1] == 'd') examine_clicked(FP_SW_DOWN, 0); 
-            break;          
-        case 'r':
-            if(data[1] == 'u') run_clicked(FP_SW_UP, 0);
-            if(data[1] == 'd') run_clicked(FP_SW_DOWN, 0); 
-            break;   
-		case 'p':
-			if(!cpa_attached) {
-				if(data[1] == 'u') power_clicked(FP_SW_UP, 0);
-				if(data[1] == 'd') power_clicked(FP_SW_DOWN, 0); 
-			}
-			break;
-        default:
-            ESP_LOGE(__func__, "CPA WS message error [%c%c]", data[0],data[1]);
-    }
-
-	// if(reset && !(key_switch & 0x40)) reset_clicked(FP_SW_CENTER, 0); // but its a one-shot
 }
 
 void sample_callback(void)

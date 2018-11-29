@@ -22,7 +22,7 @@
 #include "simglb.h"
 #include "frontpanel.h"
 #include "memory.h"
-#define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
+// #define LOG_LOCAL_LEVEL ESP_LOG_DEBUG
 #include "log.h"
 // #include "civetweb.h"
 #include "libesphttpd/esp.h"
@@ -46,19 +46,9 @@ static const char *TAG = "netsrv";
 struct {
     QueueHandle_t rxQueue;
     QueueHandle_t txQueue;
-    TaskHandle_t rxTask;
     TaskHandle_t txTask;
     ws_client_t ws_client;
 } dev[MAX_WS_CLIENTS];
-
-// static QueueHandle_t queue[MAX_WS_CLIENTS];
-// static QueueHandle_t qout[MAX_WS_CLIENTS];
-// static TaskHandle_t dev_task[MAX_WS_CLIENTS];
-// static TaskHandle_t send_task[MAX_WS_CLIENTS];
-
-// static msgbuf_t msg;
-
-// static ws_client_t ws_clients[MAX_WS_CLIENTS];
 
 char *dev_name[] = {
 	"SIO1",
@@ -97,6 +87,10 @@ int net_device_alive(net_device_t device) {
  * 		BINARY	if there are multiple bytes
  */
 void net_device_send(net_device_t device, char* msg, int len) {
+    int fl = WEBSOCK_FLAG_NONE;
+
+    if(device != DEV_CPA && len > 1) fl = WEBSOCK_FLAG_BIN;
+
  	if(dev[device].rxQueue != NULL) {
 #ifndef ESP_PLATFORM
 		mg_websocket_write(dev[device].ws_client.conn,
@@ -107,8 +101,11 @@ void net_device_send(net_device_t device, char* msg, int len) {
         if (dev[device].txQueue != NULL) {
             xQueueSend(dev[device].txQueue, msg, portMAX_DELAY);
         } else {
-            // cgiWebsockBroadcast(&httpI.httpdInstance, "/sio1", msg, 1, (len==1)?WEBSOCK_FLAG_NONE:WEBSOCK_FLAG_BIN);
-            cgiWebsocketSend(&httpI.httpdInstance, (Websock *)dev[device].ws_client.ws, msg, len, (len==1)?WEBSOCK_FLAG_NONE:WEBSOCK_FLAG_BIN);
+            httpdConnSendStart(&httpI.httpdInstance, ((Websock *)dev[device].ws_client.ws)->conn);
+
+            cgiWebsocketSend(&httpI.httpdInstance, (Websock *)dev[device].ws_client.ws, msg, len, fl);
+            
+            httpdConnSendFinish(&httpI.httpdInstance, ((Websock *)dev[device].ws_client.ws)->conn);
         }
 #endif
 	}
@@ -242,109 +239,6 @@ void httpdPrintf(HttpdConnection_t *conn, const char* format, ...) {
     httpdSend(conn, output, -1);
 }
 
-// int log_message(const HttpdConnection_t *conn, const char *message)
-// {
-// 	UNUSED(conn);
-
-// 	puts(message);
-// 	return 1;
-// }
-
-// void InformWebsockets(struct mg_context *ctx)
-// {
-// 	static unsigned long cnt = 0;
-// 	char text[32];
-// 	int i;
-
-// 	UNUSED(cnt);
-
-// 	// sprintf(text, "%lu", ++cnt);
-// 	sprintf(text, "%c", 0);
-
-// 	mg_lock_context(ctx);
-// 	for (i = 0; i < MAX_WS_CLIENTS; i++) {
-// 		if (ws_clients[i].state == 2) {
-// 			mg_websocket_write(ws_clients[i].conn,
-// 			                   MG_WEBSOCKET_OPCODE_TEXT,
-// 			                   text,
-// 			                   strlen(text));
-// 		}
-// 	}
-// 	mg_unlock_context(ctx);
-// }
-
-// int DirectoryHandler(HttpdConnection_t *conn, void *path) {
-//     request_t *req = get_request(conn);
-//     struct dirent *pDirent;
-//     DIR *pDir;
-// 	int i = 0;
-
-//     switch(req->method) {
-//     case HTTP_GET:
-//         pDir = opendir ((char *)path);
-//         if (pDir == NULL) {
-//             httpdStartResponse(conn, 404);  //http error code 'Not Found'
-//             httpdEndHeaders(conn);
-//         } else {
-//             httpdStartResponse(conn, 200); 
-//             httpdHeader(conn, "Content-Type", "application/json");
-//             httpdEndHeaders(conn);
-    
-//             httpdPrintf(conn, "[");
-
-//             while ((pDirent = readdir(pDir)) != NULL) {
-//                 LOGD(TAG, "GET directory: %s type: %d", pDirent->d_name, pDirent->d_type);
-//                 if (pDirent->d_type==DT_REG) {
-// 					httpdPrintf(conn, "%c\"%s\"", (i++ > 0)?',':' ', pDirent->d_name);
-//                  }
-//             }
-//             closedir (pDir);
-//             httpdPrintf(conn, "]");
-//         }
-// 		break;
-// 	default:
-//         httpdStartResponse(conn, 405);  //http error code 'Method Not Allowed'
-//         httpdEndHeaders(conn);
-// 		break;
-//     }
-// 	return 1;
-// }
-
-// int UploadHandler(HttpdConnection_t *conn, void *path) {
-//     request_t *req = get_request(conn);
-// 	int filelen;
-// 	char output[MAX_LFN];
-
-//     switch (req->method) {
-//     case HTTP_PUT:
-// 		strncpy(output, path, MAX_LFN);
-
-// 		if (output[strlen(output)-1] != '/')
-// 			strncat(output, "/", MAX_LFN - strlen(output));
-
-// 		strncat(output, req->args[0], MAX_LFN - strlen(output));
-
-// 		filelen = 0;
-// 		filelen = mg_store_body(conn, output);
-
-//         LOGI(TAG, "%d bytes written to %s, received %d", filelen, output, (int) req->len);
-//         httpdStartResponse(conn, 200); 
-//         httpdHeader(conn, "Content-Type", "application/json");
-//         httpdEndHeaders(conn);
-
-//         httpdPrintf(conn, "{");
-//         httpdPrintf(conn, "\"filename\": \"%s\", ", output);
-//         httpdPrintf(conn, "\"size\": \"%d\" ", filelen);
-//         httpdPrintf(conn, "}");
-// 		break;
-// 	default:
-//         httpdStartResponse(conn, 405);  //http error code 'Method Not Allowed'
-//         httpdEndHeaders(conn);
-// 		break;
-//     }
-// 	return 1;
-// }
-
 int DirectoryHandler(HttpdConnection_t *conn, void *path) {
 
     conn->cgiArg = path;
@@ -388,28 +282,14 @@ CgiStatus   cgiConfig(HttpdConnection_t *conn) {
     return configHandler(conn, (char *)conn->cgiArg);
 }
 
-// static TaskHandle_t vioRefresh = NULL;
 extern void wsRefreshTask();
 
 static void wsStopDEV(Websock *ws) {
     net_device_t device = (net_device_t)ws->conn->cgiArg2;
 
-    // if (wsSend != NULL) { vTaskDelete(wsSend); wsSend = NULL; };
-    // if (sendQueue != NULL) { vQueueDelete(sendQueue); sendQueue = NULL; };
-    // if(device == DEV_VIO) {
-    //     if (vioRefresh != NULL) { 
-    //         vTaskDelete(vioRefresh); 
-    //         vioRefresh = NULL; 
-    //     };
-    // };
-
     if (dev[device].txTask != NULL) {
         vTaskDelete(dev[device].txTask); 
         dev[device].txTask = NULL; 
-    }
-    if (dev[device].rxTask != NULL) {
-        vTaskDelete(dev[device].rxTask); 
-        dev[device].rxTask = NULL; 
     }
     if (dev[device].rxQueue != NULL) { 
         vQueueDelete(dev[device].rxQueue); 
@@ -420,14 +300,15 @@ static void wsStopDEV(Websock *ws) {
         dev[device].txQueue = NULL; 
     };
     dev[device].ws_client.ws = NULL;
+    dev[device].ws_client.state = 0;
     ESP_LOGI(__func__, "WS CLIENT CLOSED %s", dev_name[device]);
 
 }
 
 static void wsRecvDEV(Websock *ws, char *data, int len, int flags) {
     net_device_t device = (net_device_t)ws->conn->cgiArg2;
-
     int i=0;
+
     while (i < len) {
         char item = (char) data[i++];
         ESP_LOGD(TAG, "WS RECV: [%d] %d", item, len);
@@ -446,8 +327,11 @@ static void wsSendTask(void *devID) {
         ESP_LOGD(__func__, "WS (%d)", device);
         xQueueReceive(dev[device].txQueue, &data, portMAX_DELAY);
         ESP_LOGD(__func__, "WS %s SEND: [%d]", dev_name[device], data);
+        httpdConnSendStart(&httpI.httpdInstance, ((Websock *)dev[device].ws_client.ws)->conn);
+
         cgiWebsocketSend(&httpI.httpdInstance, (Websock *)dev[device].ws_client.ws, (char *) &data, 1, WEBSOCK_FLAG_NONE);
-        // cgiWebsockBroadcast(&httpI.httpdInstance, "/sio1", (char *) &data, 1, WEBSOCK_FLAG_NONE);
+
+        httpdConnSendFinish(&httpI.httpdInstance, ((Websock *)dev[device].ws_client.ws)->conn);
     };
 }
 
@@ -455,9 +339,9 @@ static void wsConnDEV(Websock *ws) {
     net_device_t device = (net_device_t)ws->conn->cgiArg2;
     
     ESP_LOGI(__func__, "WS CLIENT CONNECTED to %s", dev_name[device]);
-    // ESP_LOGI(__func__, "WS CLIENT CONNECTED to %d", device);
     
     dev[device].ws_client.ws = (void *)ws;
+    dev[device].ws_client.state = 2;
 
     ws->recvCb=wsRecvDEV;
     ws->closeCb=wsStopDEV;
@@ -466,6 +350,7 @@ static void wsConnDEV(Websock *ws) {
         case DEV_SIO1:
         case DEV_VIO:
         case DEV_LPT:
+        case DEV_CPA:
         case DEV_DZLR:
             dev[device].rxQueue = xQueueCreate(10, sizeof(char));
             if (dev[device].rxQueue == NULL) {
@@ -499,12 +384,12 @@ static void wsConnDEV(Websock *ws) {
     }
 
     if(device == DEV_SIO1) {
-        cgiWebsocketSend(&httpI.httpdInstance, ws, "Connected to ESP32 IMSAI 8080 Simulation\n\r", 42, WEBSOCK_FLAG_NONE);
+        // cgiWebsocketSend(&httpI.httpdInstance, ws, "Connected to ESP32 IMSAI 8080 Simulation\n\r", 42, WEBSOCK_FLAG_NONE);
     };
 
     if (device == DEV_VIO) {
-        xTaskCreatePinnedToCore(wsRefreshTask, "vioRefreshTask", 2000, NULL, ESP_TASK_MAIN_PRIO + 12, &dev[device].rxTask, 0);
-        if (dev[device].rxTask == NULL) 
+        xTaskCreatePinnedToCore(wsRefreshTask, "vioRefreshTask", 2000, NULL, ESP_TASK_MAIN_PRIO + 12, &dev[device].txTask, 0);
+        if (dev[device].txTask == NULL) 
             ESP_LOGE(TAG, "WS VIO REFRESH TASK CREATE FAILED");
 
 	// 	BYTE mode = peek(0xf7ff);
@@ -512,134 +397,7 @@ static void wsConnDEV(Websock *ws) {
 	// 	SLEEP_MS(100);
 	// 	poke(0xf7ff, mode);
 	}
-    // sendQueue = xQueueCreate(96 , sizeof(char));
-    // if (sendQueue == NULL) ESP_LOGE(__func__, "WS SEND QUEUE CREATE FAILED");
-    // xTaskCreatePinnedToCore(wsSendTask, "wsSendTask", 2000, NULL, ESP_TASK_MAIN_PRIO + 5, &wsSend, 0);
-    // if (wsSend == NULL) ESP_LOGE(__func__, "WS SEND TASK CREATE FAILED");
 }
-
-// static struct mg_context *ctx = NULL;
-
-// void stop_net_services (void) {
-
-// 	if (ctx != NULL) {
-// 		InformWebsockets(ctx);
-
-// 		/* Stop the server */
-// 		mg_stop(ctx);
-// 		LOGI(TAG, "Server stopped.");
-// 		LOGI(TAG, "Bye!");
-
-// 		ctx = NULL;
-// 	}
-// }
-
-// int start_net_services (void) {
-
-// 	//TODO: add config for DOCUMENT_ROOT, PORT
-
-// 	const char *options[] = {
-// 	    "document_root",
-// 	    DOCUMENT_ROOT,
-// 	    "listening_ports",
-// 	    PORT,
-//         "num_threads",
-//         "2",
-//         "max_request_size",
-//         "4096",
-// 	    "request_timeout_ms",
-// 	    "10000",
-// 	    "error_log_file",
-// 	    "error.log",
-// 	    "websocket_timeout_ms",
-// 	    "3600000",
-// 	    "enable_auth_domain_check",
-// 	    "no",
-// 		"url_rewrite_patterns",
-// 		"/imsai/disks/=./disks/, /imsai/conf/=./conf/, /imsai/printer.txt=./printer.txt",
-// 	    0};
-
-// 	struct mg_callbacks callbacks;
-
-// #ifdef DEBUG
-// 	struct mg_server_ports ports[32];
-// 	int port_cnt, n;
-// 	int err = 0;
-//     const struct mg_option *opts;
-// #endif
-
-// 	atexit(stop_net_services);
-
-// 	memset(queue, 0, sizeof(queue));
-
-//     /* Start CivetWeb web server */
-// 	memset(&callbacks, 0, sizeof(callbacks));
-// 	callbacks.log_message = log_message;
-
-//     LOGI(TAG, "Starting CivetWeb - mg_start.");
-
-// 	ctx = mg_start(&callbacks, 0, options);
-
-// 	/* Check return value: */
-// 	if (ctx == NULL) {
-// 		LOGW(TAG, "Cannot start CivetWeb - mg_start failed.");
-// 		return EXIT_FAILURE;
-// 	}
-
-//     LOGI(TAG, "Started CivetWeb - mg_start succeeded.");
-
-// 	//TODO: sort out all the paths for the handlers
-//     // mg_set_request_handler(ctx, "/system", 		SystemHandler, 		0);
-//     mg_set_request_handler(ctx, "/tasks", 		taskGetRunTimeStats, 		0);
-//     // mg_set_request_handler(ctx, "/conf", 		ConfigHandler, 		"conf");
-// #ifdef HAS_DISKMANAGER
-//     mg_set_request_handler(ctx, "/library", 	LibraryHandler, 	0);
-//     mg_set_request_handler(ctx, "/disks", 		DiskHandler, 		0);
-// #endif
-
-// 	// mg_set_websocket_handler(ctx, "/sio1",
-// 	//                          WebSocketConnectHandler,
-// 	//                          WebSocketReadyHandler,
-// 	//                          WebsocketDataHandler,
-// 	//                          WebSocketCloseHandler,
-// 	//                          (void *) DEV_SIO1);
-// 	// mg_set_websocket_handler(ctx, "/lpt",
-// 	//                          WebSocketConnectHandler,
-// 	//                          WebSocketReadyHandler,
-// 	//                          WebsocketDataHandler,
-// 	//                          WebSocketCloseHandler,
-// 	//                          (void *) DEV_LPT);
-	
-// 	// mg_set_websocket_handler(ctx, "/vio",
-// 	//                          WebSocketConnectHandler,
-// 	//                          WebSocketReadyHandler,
-// 	//                          WebsocketDataHandler,
-// 	//                          WebSocketCloseHandler,
-// 	//                          (void *) DEV_VIO);
-	
-// 	// mg_set_websocket_handler(ctx, "/dazzler",
-// 	//                          WebSocketConnectHandler,
-// 	//                          WebSocketReadyHandler,
-// 	//                          WebsocketDataHandler,
-// 	//                          WebSocketCloseHandler,
-// 	//                          (void *) DEV_DZLR);
-	
-// 	// mg_set_websocket_handler(ctx, "/cpa",
-// 	//                          WebSocketConnectHandler,
-// 	//                          WebSocketReadyHandler,
-// 	//                          WebsocketDataHandler,
-// 	//                          WebSocketCloseHandler,
-// 	//                          (void *) DEV_CPA);
-
-// #ifdef DEBUG
-// 	/* List all listening ports */
-// 	memset(ports, 0, sizeof(ports));
-// 	port_cnt = mg_get_server_ports(ctx, 32, ports);
-// 	printf("\n%i listening ports:\n", port_cnt);
-// #endif
-
-// 	return EXIT_SUCCESS;
-// }
 
 static const CgiUploadFlashDef flashDef;
 
@@ -686,7 +444,26 @@ void start_net_services(void) {
     }
 }
 
+void InformWebsockets(void)
+{
+	int i;
+
+	for (i = 0; i < MAX_WS_CLIENTS; i++) {
+		if (dev[i].ws_client.state == 2) {
+            ESP_LOGI(__func__, "Close WS CLIENT %s", dev_name[i]);
+
+            httpdConnSendStart(&httpI.httpdInstance, ((Websock *)dev[i].ws_client.ws)->conn);
+            cgiWebsocketClose(&httpI.httpdInstance, (Websock *)dev[i].ws_client.ws, 0x0000);
+            httpdConnSendFinish(&httpI.httpdInstance, ((Websock *)dev[i].ws_client.ws)->conn);
+		}
+	}
+}
+
 void stop_net_services(void) {
+
+    if(httpd == InitializationSuccess) {
+        InformWebsockets();
+    }
 
 }
 #endif
