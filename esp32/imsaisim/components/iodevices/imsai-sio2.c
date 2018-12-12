@@ -36,7 +36,20 @@
 
 #define BAUDTIME 10000000
 
-#define poll(a, b, c)  (void)0
+// #define poll(a, b, c)  (void)0
+
+int poll(struct pollfd *fds, nfds_t nfds, int timeout) {
+
+	int ch = fgetc(stdin);
+
+	if(ch != EOF) {
+		ungetc(ch, stdin);
+		fds[0].revents |= (fds[0].events & POLLIN);
+	}
+	fds[0].revents |= (fds[0].events & POLLOUT);
+
+	return fds[0].revents?1:0;
+}
 
 static const char *TAG = "SIO";
 
@@ -126,7 +139,7 @@ BYTE imsai_sio1_data_in(void)
 	} else 
 #endif
 	{
-again:
+// again:
 		/* if no input waiting return last */
 		p[0].fd = fileno(stdin);
 		p[0].events = POLLIN;
@@ -135,12 +148,16 @@ again:
 		if (!(p[0].revents & POLLIN))
 			return(last);
 
-		if (read(fileno(stdin), &data, 1) == 0) {
-			/* try to reopen tty, input redirection exhausted */
-			freopen("/dev/tty", "r", stdin);
-			set_unix_terminal();
-			goto again;
-		}
+		data = fgetc(stdin);
+		if(data == EOF) 
+			return (last);
+
+		// if (read(fileno(stdin), &data, 1) == 0) {
+		// 	/* try to reopen tty, input redirection exhausted */
+		// 	freopen("/dev/tty", "r", stdin);
+		// 	set_unix_terminal();
+		// 	goto again;
+		// }
 	}
 
 	gettimeofday(&t1, NULL);
@@ -173,17 +190,23 @@ void imsai_sio1_data_out(BYTE data)
 		net_device_send(DEV_SIO1, (char *) &data, 1);
 	} else 
 #endif
-	{
-again:
-		if (write(fileno(stdout), (char *) &data, 1) != 1) {
-			if (errno == EINTR) {
-				goto again;
-			} else {
-				LOGE(TAG, "can't write data");
-				cpu_error = IOERROR;
-				cpu_state = STOPPED;
-			}
-		}
+// 	{
+// again:
+// 		if (write(fileno(stdout), (char *) &data, 1) != 1) {
+// 			if (errno == EINTR) {
+// 				goto again;
+// 			} else {
+// 				LOGE(TAG, "can't write data");
+// 				cpu_error = IOERROR;
+// 				cpu_state = STOPPED;
+// 			}
+// 		}
+// 	}
+
+	if (fputc(data, stdout) == EOF) {
+		perror("write imsai sio2 data");
+		cpu_error = IOERROR;
+		cpu_state = STOPPED;
 	}
 
 	gettimeofday(&t1, NULL);
