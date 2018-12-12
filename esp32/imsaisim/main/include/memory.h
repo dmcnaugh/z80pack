@@ -107,7 +107,7 @@ static inline BYTE dma_read(WORD addr)
 	{
 		fp_clock++;
 		bus_request = 1;
-		fp_sampleData();
+		// fp_sampleData();
 		bus_request = 0;
 		return(_MEMDIRECT(addr));
 	}
@@ -121,7 +121,7 @@ static inline void dma_write(WORD addr, BYTE data)
 	{
 		fp_clock++;
 		bus_request = 1;
-		fp_sampleData();
+		// fp_sampleData();
 		bus_request = 0;
 		_MEMDIRECT(addr) = data;
 	}
