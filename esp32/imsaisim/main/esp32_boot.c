@@ -63,6 +63,42 @@ void get_boot_env(void) {
     }
 }
 
+void set_log_level(void) {
+    char *s;
+
+    if((s = getenv("LOG_LEVEL")) != NULL) { 
+        switch(s[0]) {
+            case 'V':
+                ESP_LOGI(TAG, "Log Level set to VERBOSE");
+                esp_log_level_set("*", ESP_LOG_VERBOSE);
+                break; 
+            case 'D':
+                ESP_LOGI(TAG, "Log Level set to DEBUG");
+                esp_log_level_set("*", ESP_LOG_DEBUG);
+                break; 
+            case 'I':
+                ESP_LOGI(TAG, "Log Level set to INFO");
+                esp_log_level_set("*", ESP_LOG_INFO);
+                break; 
+            case 'W':
+                ESP_LOGI(TAG, "Log Level set to WARN");
+                esp_log_level_set("*", ESP_LOG_WARN);
+                break; 
+            case 'E':
+                ESP_LOGI(TAG, "Log Level set to ERROR");
+                esp_log_level_set("*", ESP_LOG_ERROR);
+                break; 
+            case 'N':
+                ESP_LOGI(TAG, "Log Level set to NONE");
+                esp_log_level_set("*", ESP_LOG_NONE);
+                break; 
+            default:
+                ESP_LOGE(TAG,"Unknown LOG_LEVEL=%s",s);
+                break;
+        }
+    }
+}
+
 void set_time(void) {
     time_t now;
     struct tm timeinfo;
@@ -125,6 +161,8 @@ void app_main()
 
     sleep(2);
     stop_post_flash_timer();
+
+    set_log_level();
 
     do {
         main(sim_arg_count, sim_args);
