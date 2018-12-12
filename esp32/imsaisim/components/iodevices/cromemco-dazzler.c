@@ -708,6 +708,11 @@ void dazRefreshTask() {
 		/* update display window */
 		ws_refresh();
 
+		/* frame done, set frame flag for 4ms */
+		flags = 0;
+		SLEEP_MS(4);
+		flags = 64;
+
 		/* compute time used for processing */
 		t2 = esp_timer_get_time();
 		tdiff = t2 - t1;
