@@ -40,8 +40,10 @@
 #define DOCUMENT_ROOT "/sdcard/www"
 #define PORT "80"
 
-#define MAX_WS_CLIENTS (6)
+#define MAX_WS_CLIENTS (7)
 static const char *TAG = "netsrv";
+
+static msgbuf_t msg;
 
 struct {
     QueueHandle_t rxQueue;
@@ -55,7 +57,8 @@ char *dev_name[] = {
 	"LPT",
 	"VIO",
 	"CPA",
-	"DZLR"
+	"DZLR",
+    "ACC"
 };
 
 #ifdef HAS_DISKMANAGER
@@ -88,6 +91,10 @@ int net_device_alive(net_device_t device) {
  */
 void net_device_send(net_device_t device, char* msg, int len) {
     int fl = WEBSOCK_FLAG_NONE;
+    int next;
+    int rem;
+    int chunk;
+    int cont;
 
     if(device != DEV_CPA && len > 1) fl = WEBSOCK_FLAG_BIN;
 
@@ -102,8 +109,26 @@ void net_device_send(net_device_t device, char* msg, int len) {
             xQueueSend(dev[device].txQueue, msg, portMAX_DELAY);
         } else {
             httpdConnSendStart(&httpI.httpdInstance, ((Websock *)dev[device].ws_client.ws)->conn);
+            next = 0;
+            rem = len;
+            cont = 0;
+#define CHUNK_SIZE 1024
+            while(rem > 0) {
+                if (rem > CHUNK_SIZE) { 
+                    fl |= WEBSOCK_FLAG_MORE;
+                    chunk = CHUNK_SIZE;
+                    cont = 1;
+                    ESP_LOGI(TAG, "WebSock chunking %d of %d", chunk, len);
+                } else {
+                    fl &= ~WEBSOCK_FLAG_MORE;
+                    chunk = rem;
+                }
+                cgiWebsocketSend(&httpI.httpdInstance, (Websock *)dev[device].ws_client.ws, msg+next, chunk, fl);
 
-            cgiWebsocketSend(&httpI.httpdInstance, (Websock *)dev[device].ws_client.ws, msg, len, fl);
+                if(cont) fl |= WEBSOCK_FLAG_CONT;
+                next += chunk;
+                rem -= chunk;
+            }
             
             httpdConnSendFinish(&httpI.httpdInstance, ((Websock *)dev[device].ws_client.ws)->conn);
         }
@@ -140,6 +165,32 @@ int net_device_get(net_device_t device) {
 #endif
 	}
 
+	return -1;
+}
+
+int net_device_get_data(net_device_t device, char *dst, int len) {
+	ssize_t res;
+	msgbuf_t msg;
+
+	if (dev[device].rxQueue != NULL) {
+#ifndef ESP_PLATFORM
+		res = msgrcv(queue[device], &msg, len, 1L, MSG_NOERROR);
+		// if (device == DEV_88ACC)
+		// 	LOGI(TAG, "GET: device[%d] res[%ld] msg[tyep: %ld]\r\n", device, res, msg.mtype);
+		memcpy((void *)dst, (void *)msg.mtext, res);
+		return res;
+#else
+        // UNUSED(res);
+        // UNUSED(msg);
+		// if(uxQueueMessagesWaiting(dev[device].rxQueue) > 0) {
+			xQueueReceive(dev[device].rxQueue, &msg, portMAX_DELAY);
+            res = msg.len;	
+			// LOGI(TAG, "GET: device[%d] res[%d] msg[type: %ld]\r\n", device, res, msg.mtype);
+            memcpy((void *)dst, (void *)msg.mtext, res);
+            return res;
+		// } 
+#endif
+	}
 	return -1;
 }
 
@@ -308,6 +359,23 @@ static void wsStopDEV(Websock *ws) {
 static void wsRecvDEV(Websock *ws, char *data, int len, int flags) {
     net_device_t device = (net_device_t)ws->conn->cgiArg2;
     int i=0;
+    // msgbuf_t msg;
+
+    if (device == DEV_88ACC) {
+        msg.mtype = 1L;
+        msg.len = len;
+        // if(len == 128) {
+        if(len != 128) ESP_LOGI(__func__, "%2X - Continue? %d", flags, len);
+            memcpy(msg.mtext, data, len);
+            if (dev[device].rxQueue != NULL) {
+                xQueueSend(dev[device].rxQueue, (void *) &msg, portMAX_DELAY);
+            }
+        // }
+        // if (msgsnd(queue[(net_device_t)device], &msg, len, 0)) {
+        //     perror("msgsnd()");
+        // };
+
+    } else {
 
     while (i < len) {
         char item = (char) data[i++];
@@ -315,6 +383,8 @@ static void wsRecvDEV(Websock *ws, char *data, int len, int flags) {
         if (dev[device].rxQueue != NULL) {
             xQueueSend(dev[device].rxQueue, (void *) &item, portMAX_DELAY);
         }
+    }
+
     }
 }
 
@@ -359,6 +429,14 @@ static void wsConnDEV(Websock *ws) {
                 ESP_LOGD(__func__, "WS RECV QUEUE CREATE SUCCEED for %s", dev_name[device]);
             }
             break;
+        case DEV_88ACC:
+            dev[device].rxQueue = xQueueCreate(2, sizeof(msg));
+            if (dev[device].rxQueue == NULL) {
+                ESP_LOGE(__func__, "WS RECV QUEUE CREATE FAILED for %s", dev_name[device]);
+            } else {
+                ESP_LOGI(__func__, "Special WS RECV QUEUE CREATE SUCCEED for %s", dev_name[device]);
+            }
+            break;
         default:
             break;
     }
@@ -372,7 +450,8 @@ static void wsConnDEV(Websock *ws) {
             } else {
                 ESP_LOGD(__func__, "WS SEND QUEUE CREATE SUCCEED for %s", dev_name[device]);
             }
-            xTaskCreatePinnedToCore(wsSendTask, "wsSendTask", 2000, ws->conn->cgiArg2, ESP_TASK_MAIN_PRIO + 6 + (int) device, &dev[device].txTask, 0);
+            // xTaskCreatePinnedToCore(wsSendTask, "wsSendTask", 2000, ws->conn->cgiArg2, ESP_TASK_MAIN_PRIO + 6 + (int) device, &dev[device].txTask, 0);
+            xTaskCreatePinnedToCore(wsSendTask, dev_name[device], 2000, ws->conn->cgiArg2, ESP_TASK_MAIN_PRIO + 6 + (int) device, &dev[device].txTask, 0);
             if (dev[device].txTask == NULL) {
                 ESP_LOGE(__func__, "WS SEND TASK CREATE FAILED");
             } else {
@@ -388,9 +467,12 @@ static void wsConnDEV(Websock *ws) {
     };
 
     if (device == DEV_VIO) {
-        xTaskCreatePinnedToCore(wsRefreshTask, "vioRefreshTask", 2000, NULL, ESP_TASK_MAIN_PRIO + 12, &dev[device].txTask, 0);
-        if (dev[device].txTask == NULL) 
-            ESP_LOGE(TAG, "WS VIO REFRESH TASK CREATE FAILED");
+        /* start IMSAI VIO task if firmware is loaded */
+        if (!strncmp((char *) mem_base() + 0xfffd, "VI0", 3)) {
+            xTaskCreatePinnedToCore(wsRefreshTask, "vioRefreshTask", 2000, NULL, ESP_TASK_MAIN_PRIO + 12, &dev[device].txTask, 0);
+            if (dev[device].txTask == NULL) 
+                ESP_LOGE(TAG, "WS VIO REFRESH TASK CREATE FAILED");
+        }
 
 	// 	BYTE mode = peek(0xf7ff);
 	// 	poke(0xf7ff, 0x00);
@@ -407,6 +489,7 @@ const HttpdBuiltInUrl builtInUrls[]={
     {"/lpt", cgiWebsocket, wsConnDEV, (void *)DEV_LPT},
     {"/vio", cgiWebsocket, wsConnDEV, (void *)DEV_VIO},
     {"/dazzler", cgiWebsocket, wsConnDEV, (void *)DEV_DZLR},
+    {"/acc", cgiWebsocket, wsConnDEV, (void *)DEV_88ACC},
     {"/cpa", cgiWebsocket, wsConnDEV, (void *)DEV_CPA},
     {"/disks", cgiDisks, NULL, NULL},
     // {"/cfg", cgiEspVfsUpload, "/sdcard/imsai/conf", NULL},

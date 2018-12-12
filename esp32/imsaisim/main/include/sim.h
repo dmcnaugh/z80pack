@@ -35,6 +35,7 @@
 
 #define UNIX_TERMINAL	/* uses a UNIX terminal emulation */
 #define HAS_DAZZLER	/* has simulated I/O for Cromemeco Dazzler */
+#define HAS_CYCLOPS	/* has simulated I/O for Cromemeco Cyclops */
 
 #define HAS_DISKS	/* uses disk images */
 #define HAS_CONFIG	/* has configuration files somewhere */
