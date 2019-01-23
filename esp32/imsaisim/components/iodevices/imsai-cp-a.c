@@ -304,7 +304,7 @@ void poll_switches(void) {
 	address_switch = sws[0] << 8 | sws[1];
 	keySW = (sws[2] << 8 | sws[3]); // & keySHOT;
 	key_switch = keySW & keySHOT;
-	keySHOT = ~ (keySW & 0b0000111100111100) ; // Don't one-shot the RESET/RST.CLR. switch
+	keySHOT = ~ (keySW & 0b0000111110111100) ; // Don't one-shot the RESET/RST.CLR. switch
 
 	// if(key_switch) ESP_LOGI(__func__, "Key Switch %X", key_switch);
 

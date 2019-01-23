@@ -81,7 +81,7 @@ CgiStatus   cgiSystem(HttpdConnection_t *conn) {
             httpdPrintf(conn, "}, ");
 
             httpdPrintf(conn, "\"system\": { ");
-                httpdPrintf(conn, "\"free_mem\": %d, ", esp_get_free_heap_size());
+                httpdPrintf(conn, "\"free_mem\": %d, ", heap_caps_get_free_size(MALLOC_CAP_8BIT )); //| MALLOC_CAP_INTERNAL));
                 httpdPrintf(conn, "\"time\": %ld, ", time(NULL));
                 httpdPrintf(conn, "\"uptime\": %lld ", esp_timer_get_time());
             httpdPrintf(conn, "}, ");
@@ -102,7 +102,7 @@ CgiStatus   cgiSystem(HttpdConnection_t *conn) {
                     httpdPrintf(conn, "\"%s\": \"%s\", ", "bootrom", xfn);
                 }
                 if(cpa_attached) {
-                    httpdPrintf(conn, "\"%s\": %d, ", "cpa", dip_settings);
+                    httpdPrintf(conn, "\"%s\": %d, ", "cpa", nvs_settings);
                 }
                 httpdPrintf(conn, "\"%s\": %d ", "clock", f_flag);
             httpdPrintf(conn, "}, ");

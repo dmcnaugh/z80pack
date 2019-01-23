@@ -32,6 +32,7 @@
 #include "libesphttpd/cgiwebsocket.h"
 #include "libesphttpd/cgiflash.h"
 
+#include "esp32_hardware.h"
 #include "netsrv.h"
 
 #define HAS_NETSERVER
@@ -523,7 +524,7 @@ void start_net_services(void) {
     if(httpd != InitializationSuccess) {
         ESP_LOGE(TAG, "Failed to start httpd [err: %d]", httpd);
     } else {
-        // update_status(0x08, STATUS_SET);
+        update_status(0x08, STATUS_SET);
     }
 }
 
