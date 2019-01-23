@@ -15,6 +15,8 @@ extern int main(int argc, char *argv[]);
 char *sim_args[32];
 int sim_arg_count = 0;
 
+char *log_level[8] = {"NONE", "ERROR", "WARN", "INFO", "DEBUG", "VERBOSE", "6", "7"};
+
 #define BUFSIZE CONFIG_FATFS_MAX_LFN
 
 void get_boot_env(void) {
@@ -63,10 +65,10 @@ void get_boot_env(void) {
     }
 }
 
-void set_log_level(void) {
-    char *s;
+void set_log_level(char *s) {
+    // ESP_LOGI(TAG,"Setting LOG_LEVEL=%s",s);
 
-    if((s = getenv("LOG_LEVEL")) != NULL) { 
+    if(s != NULL) { 
         switch(s[0]) {
             case 'V':
                 ESP_LOGI(TAG, "Log Level set to VERBOSE");
@@ -123,6 +125,8 @@ void set_time(void) {
     update_status(0x04, STATUS_SET); 
 }
 
+extern uint8_t *poll_toggles(void);
+extern uint16_t get_nvs_settings(bool);
 extern void initialise_hardware(void);
 extern void initialise_network(void);
 extern void start_wifi_services(void);
@@ -132,41 +136,60 @@ void reboot(int);
 void app_main()
 {
 
-    esp_log_level_set("*", ESP_LOG_INFO);
+    nvs_settings = get_nvs_settings(false);
+
+    set_log_level(log_level[NVS_LOG_LEVEL]);
+
+    // esp_log_level_set("*", ESP_LOG_INFO);
     esp_log_level_set("tcpip_adapter", ESP_LOG_INFO);
-    esp_log_level_set("nvs", ESP_LOG_INFO);
+    // esp_log_level_set("nvs", ESP_LOG_INFO);
     esp_log_level_set("heap_init", ESP_LOG_WARN);
     esp_log_level_set("intr_alloc", ESP_LOG_WARN);
- 
+    esp_log_level_set("spi_master", ESP_LOG_WARN);
+
     initialise_hardware();
 
     sim_args[sim_arg_count++] = strdup("imsai");
-    if(dip_settings & 0x04) {
+    if(NVS_Z80) {
         sim_args[sim_arg_count++] = strdup("-z");
     } else {
         sim_args[sim_arg_count++] = strdup("-8");
     } 
     get_boot_env();
 
-    if(dip_settings & 0x08) {
-        sim_args[sim_arg_count++] = strdup("-x /sdcard/imsai/mpu-a-vio-rom.hex");
+    if(NVS_NO_UNDOC) {
+        sim_args[sim_arg_count++] = strdup("-u");
     }
-    if(dip_settings & 0x02) {
+    if(NVS_BANK_ROM) {
+        sim_args[sim_arg_count++] = strdup("-r");
+    }
+    if(NVS_VIO) {
+        sim_args[sim_arg_count++] = strdup("-x /sdcard/imsai/mpu-a-vio-rom.hex");
+    } else {
+        sim_args[sim_arg_count++] = strdup("-x /sdcard/imsai/bootrom.hex");
+    }
+    if(NVS_UNLIMITED) {
         sim_args[sim_arg_count++] = strdup("-f 0");
+    } else if(NVS_4MHZ) {
+        sim_args[sim_arg_count++] = strdup("-f 4");
+    } else {
+        sim_args[sim_arg_count++] = strdup("-f 2");
     }
 
     initialise_network();
     start_wifi_services();
     set_time();
 
-    sleep(2);
+    // sleep(2);
     stop_post_flash_timer();
 
-    set_log_level();
+    set_log_level(getenv("LOG_LEVEL"));
 
     do {
-        main(sim_arg_count, sim_args);
-    } while (cpu_error == POWEROFF);
+        uint8_t *sw = poll_toggles();
+        if (POWER_ON(sw)) main(sim_arg_count, sim_args);
+        usleep(100000);
+    } while (cpu_error == POWEROFF || cpu_error == NONE  || cpu_error == IOHALT);
 
     ESP_LOGI(__func__,"CPU_ERROR: %d", cpu_error);
 #ifdef CONFIG_IMSAI_AUTOSTART

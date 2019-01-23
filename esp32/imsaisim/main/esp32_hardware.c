@@ -24,13 +24,11 @@
 
 #define PIN_NUM_DSK_LAT	GPIO_NUM_22
 
-#define LATCH_DSK_LEDS	gpio_set_level(PIN_NUM_DSK_LAT, HIGH); gpio_set_level(PIN_NUM_DSK_LAT, LOW);
-
 static const char* TAG = "esp32_hardware";
 
 esp_interface_t netIface = ESP_IF_WIFI_STA;
 int cpa_attached;
-uint8_t dip_settings = 0;
+uint16_t nvs_settings = 0;
 
 spi_device_handle_t ledspi;
 spi_device_handle_t swspi;
@@ -91,21 +89,31 @@ static uint8_t status_leds = 0;
 static uint8_t status_bits = 0;
 static uint8_t status_pulse_bits = 0;
 
+static uint8_t sws[4];
+static uint8_t leds[6];
+
 void update_status(int data, int mode)
 {
+    int t;
+
+    if (NVS_NO_POST) return;
+
     if(mode & STATUS_SET) { status_bits |= data; status_pulse_bits &= ~data; }
     if(mode & STATUS_FLASH) status_pulse_bits = data;
     if(mode & STATUS_FORCE) { status_bits = data; status_leds = data; }
     
     status_leds = (status_leds & status_pulse_bits) | status_bits;
-	tx_status_leds(ledspi, &status_leds);
-	LATCH_DSK_LEDS;
+    for (t=0; t < sizeof(leds); t++) leds[t] = 0;
+    leds[5] = status_leds;
+    tx_leds(ledspi, leds);
+    LATCH_LEDS;
+
 }
 
 void post_flash(void *arg) {
-        status_leds = (status_leds ^ status_pulse_bits) | status_bits;
-	    tx_status_leds(ledspi, &status_leds);
-	    LATCH_DSK_LEDS;
+    leds[5] = status_leds;
+    tx_leds(ledspi, leds);
+    LATCH_LEDS;
 }
 
 const esp_timer_create_args_t post_timer_args = {
@@ -115,6 +123,8 @@ const esp_timer_create_args_t post_timer_args = {
 static esp_timer_handle_t post_timer = NULL;
 
 void start_post_flash_timer(void) {
+
+    if (NVS_NO_POST) return;
 
     ESP_ERROR_CHECK(esp_timer_create(&post_timer_args, &post_timer));
 	ESP_ERROR_CHECK(esp_timer_start_periodic(post_timer, 250000));
@@ -130,6 +140,22 @@ void stop_post_flash_timer(void) {
     ESP_LOGI(TAG, "IMSAI POST flash timer stopped");
 }
 
+uint8_t *poll_toggles(void) {
+
+    LATCH_SWITCHES;
+    gpio_set_level(PIN_NUM_SW_OE, LOW);
+    rx_switches(swspi, sws);
+    gpio_set_level(PIN_NUM_SW_OE, HIGH);
+
+    return sws;
+}
+
+extern uint16_t get_nvs_settings(bool);
+extern void set_nvs_settings(uint16_t);
+extern void commit_nvs_settings(bool);
+
+extern void reboot(int);
+
 void initialise_hardware(void) {
 
     ESP_LOGI(TAG, "IMSAI Shell Running on Core#%d",xPortGetCoreID());
@@ -144,22 +170,25 @@ void initialise_hardware(void) {
 	
 	//Initialize non-SPI GPIOs
 	gpio_set_direction(PIN_NUM_LED_LAT, GPIO_MODE_OUTPUT);
-	gpio_set_direction(PIN_NUM_DSK_LAT, GPIO_MODE_OUTPUT);
 	gpio_set_direction(PIN_NUM_SW_LAT, GPIO_MODE_OUTPUT);
 	gpio_set_direction(PIN_NUM_SW_OE, GPIO_MODE_OUTPUT);
 
 	//Reset the GPIOs
 	gpio_set_level(PIN_NUM_LED_LAT, LOW);
-	gpio_set_level(PIN_NUM_DSK_LAT, LOW);
 	gpio_set_level(PIN_NUM_SW_LAT, HIGH);
 	gpio_set_level(PIN_NUM_SW_OE, HIGH);
 
 	// usleep(50000);
 
+	int t;
+    for (t=0; t < sizeof(leds); t++) leds[t] = 0;
+    tx_leds(ledspi, leds);
+    LATCH_LEDS;
+    tx_status_leds(ledspi, leds);
+
 	// Run test display pattern
     update_status(0, STATUS_FORCE);
 
-	int t;
     for(t=1; t<0x81; t=t<<1) {
         update_status(t, STATUS_FORCE);
         usleep(30000);
@@ -172,6 +201,58 @@ void initialise_hardware(void) {
 	// Clear display
 	update_status(0, STATUS_FORCE);
 
+	//Check CP-A connected by checking switches for PWR.ON or PWR.OFF
+    update_status(0x80, STATUS_FLASH);
+    // sleep(1);
+
+	LATCH_SWITCHES;
+	gpio_set_level(PIN_NUM_SW_OE, LOW);
+	rx_switches(swspi, sws);
+	gpio_set_level(PIN_NUM_SW_OE, HIGH);
+
+	if(sws[3]) { 
+		cpa_attached = 1;
+        update_status(0x80, STATUS_SET);
+		ESP_LOGI(TAG, "CP-A Found - Power Switch %X", sws[3]);
+	} else {
+		cpa_attached = 0;
+        update_status(0, STATUS_FLASH);
+		ESP_LOGI(TAG, "CP-A NOT Found - Power Switch %X", sws[3]);
+	}
+
+    ESP_LOGI(TAG, "DIP/MEM Switches: %02X", sws[2]);
+    if (EXAMINE(sws) && POWER_OFF(sws)) {
+        ESP_LOGW(TAG, "Change to NVRAM setting mode");
+
+        leds[0] = 0;
+        nvs_settings = get_nvs_settings(true);
+
+        while( !RUN(sws) ) {
+            leds[0] = leds[0] ? leds[0] << 1 : 1;
+            leds[3] = nvs_settings >> 8;
+            leds[1] = nvs_settings & 0xFF;
+            tx_leds(ledspi, leds);
+            LATCH_LEDS;
+            usleep(100000);
+ 
+            poll_toggles();
+
+            if (DEPOSIT(sws)) {
+                nvs_settings = sws[0] << 8 | sws[1];
+                set_nvs_settings(nvs_settings);
+                usleep(500000);
+            }
+        }
+
+        for (t=0; t < sizeof(leds); t++) leds[t] = 0;
+        tx_leds(ledspi, leds);
+		LATCH_LEDS;
+
+        commit_nvs_settings(true);
+
+        reboot(500000);
+    }
+
     /**
      * Initialise SD card
      *
@@ -182,6 +263,7 @@ void initialise_hardware(void) {
     
     ESP_LOGI(TAG, "Using SDMMC peripheral");
     sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+    host.max_freq_khz = SDMMC_FREQ_HIGHSPEED;
 
     // To use 1-line SD mode, uncomment the following line:
     // host.flags = SDMMC_HOST_FLAG_1BIT;
@@ -189,6 +271,7 @@ void initialise_hardware(void) {
     // This initializes the slot without card detect (CD) and write protect (WP) signals.
     // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
     sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+    // slot_config.gpio_cd = 5;
     
     // Options for mounting the filesystem.
     // If format_if_mount_failed is set to true, SD card will be partitioned and
@@ -205,7 +288,7 @@ void initialise_hardware(void) {
     sdmmc_card_t* card;
     esp_err_t ret = esp_vfs_fat_sdmmc_mount("/sdcard", &host, &slot_config, &mount_config, &card);
 
-    sleep(1);
+    // sleep(1);
     update_status(0, STATUS_FLASH);
 
     if (ret != ESP_OK) {
@@ -221,28 +304,7 @@ void initialise_hardware(void) {
 
     update_status(0x40, STATUS_SET);
     // Card has been initialized, print its properties
-    sdmmc_card_print_info(stdout, card);
-
-	//Check CP-A connected by checking switches for PWR.ON or PWR.OFF
-    update_status(0x80, STATUS_FLASH);
-    sleep(1);
-
-    uint8_t sws[4];
-	LATCH_SWITCHES;
-	gpio_set_level(PIN_NUM_SW_OE, LOW);
-	rx_switches(swspi, sws);
-	gpio_set_level(PIN_NUM_SW_OE, HIGH);
-
-	if(sws[3]) { 
-		cpa_attached = 1;
-        dip_settings = sws[2] >> 4;
-        update_status(0x80, STATUS_SET);
-		ESP_LOGI(TAG, "CP-A Found - Power Switch %X", sws[3]);
-	} else {
-		cpa_attached = 0;
-        update_status(0, STATUS_FLASH);
-		ESP_LOGI(TAG, "CP-A NOT Found - Power Switch %X", sws[3]);
-	}
+    if (NVS_LOG_LEVEL > 0) sdmmc_card_print_info(stdout, card);
 
     return;
 }
@@ -258,12 +320,11 @@ void initialise_network(void) {
     // static bool wifi_initialized = false;
     wifi_event_group = xEventGroupCreate();
 
-    ESP_ERROR_CHECK( nvs_flash_init() );
     tcpip_adapter_init();
     
     update_status(0x20, STATUS_FLASH);
 
-    if((dip_settings & 0x01) || esp_sleep_get_wakeup_cause())  {
+    if(NVS_IF_AP || esp_sleep_get_wakeup_cause())  {
         netIface = ESP_IF_WIFI_AP;
     } else {
         if(getenv("SSID") != NULL) {
