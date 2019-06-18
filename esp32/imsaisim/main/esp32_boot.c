@@ -51,7 +51,7 @@ void get_boot_env(void) {
     while(environ[i] != NULL) {
         ESP_LOGI(TAG, "ENV: %s", environ[i++]);        
     }
-   
+  
     if((s = getenv("SIM_ARGS")) != NULL) { 
         strcpy(buf, s);
         t1 = strtok(buf, " ");
@@ -209,6 +209,7 @@ void app_main()
 
 static void timeout(void* arg)
 {
+    ESP_LOGW(__func__,"Rebooting now");
     esp_restart();
 }
 
@@ -220,7 +221,7 @@ esp_timer_handle_t reboot_timer = NULL;
 
 void reboot(int timer_period_us)
 {
-    ESP_LOGI(__func__,"Reboot in %5.3f sec.", (float) timer_period_us / 1000000.0);
+    ESP_LOGW(__func__,"Reboot in %5.3f sec.", (float) timer_period_us / 1000000.0);
 
     ESP_ERROR_CHECK(esp_timer_create(&reboot_timer_args, &reboot_timer));
     ESP_ERROR_CHECK(esp_timer_start_once(reboot_timer, timer_period_us));
