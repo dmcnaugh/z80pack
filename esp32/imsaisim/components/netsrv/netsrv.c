@@ -67,7 +67,7 @@ extern int LibraryHandler(HttpdConnection_t *, void *);
 extern int DiskHandler(HttpdConnection_t *, void *);
 #endif
 
-#define MAX_CONNECTIONS 15
+#define MAX_CONNECTIONS 12
 static char connectionMemory[sizeof(RtosConnType) * MAX_CONNECTIONS];
 static HttpdFreertosInstance httpI;
 static HttpdInitStatus httpd;
@@ -321,6 +321,24 @@ int configHandler(HttpdConnection_t *conn, void *path) {
 	return 1;
 }
 
+int ManualHandler(HttpdConnection_t *conn, void *path) {
+    request_t *req = get_request(conn);
+
+    switch (req->method) {
+    case HTTP_GET:
+        return DirectoryHandler(conn, path);
+		break;
+    case HTTP_PUT:
+	    return UploadHandler(conn, path);
+		break;
+	default:
+        httpdStartResponse(conn, 405);  //http error code 'Method Not Allowed'
+        httpdEndHeaders(conn);
+		break;
+    }
+	return 1;
+}
+
 CgiStatus   cgiDisks(HttpdConnection_t *conn) {
 
     return DiskHandler(conn, NULL);
@@ -328,6 +346,10 @@ CgiStatus   cgiDisks(HttpdConnection_t *conn) {
 CgiStatus   cgiLibrary(HttpdConnection_t *conn) {
     
     return LibraryHandler(conn, NULL);
+}
+CgiStatus   cgiManual(HttpdConnection_t *conn) {
+    
+    return ManualHandler(conn, (char *)conn->cgiArg);
 }
 CgiStatus   cgiConfig(HttpdConnection_t *conn) {
     
@@ -498,6 +520,7 @@ const HttpdBuiltInUrl builtInUrls[]={
     {"/printer", cgiEspVfsUpload, "/sdcard/www/printer", NULL},
     // {"/libbox", cgiEspVfsUpload, DISKSDIR, NULL},
     {"/library", cgiLibrary, NULL, NULL},
+    {"/manual", cgiManual, "/sdcard/imsai/manual", NULL},
     {"/system", cgiSystem, NULL, NULL},
     {"/tasks", cgiTasks, NULL, NULL},
     {"/flash", cgiUploadFirmware, &flashDef, NULL},
