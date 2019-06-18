@@ -29,8 +29,8 @@ static const char *TAG = "memory";
 /* 64KB non banked memory */
 BYTE memory[64<<10];
 /* 2KB banked ROM & RAM for MPU-B */
-BYTE mpubrom[2<<10];
-BYTE mpubram[2<<10];
+EXT_RAM_ATTR BYTE mpubrom[2<<10];
+EXT_RAM_ATTR BYTE mpubram[2<<10];
 
 /* Memory access read and write vector tables */
 BYTE *rdrvec[64];
