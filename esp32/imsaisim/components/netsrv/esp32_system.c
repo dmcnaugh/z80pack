@@ -28,7 +28,12 @@ static char buf[256];
 extern void taskGetRunTimeStats(HttpdConnection_t *, char *);
 extern void reboot(int);
 
+extern uint16_t get_nvs_settings(bool);
+extern void set_nvs_ssid(char *);
+extern void commit_nvs_settings(bool);
+
 CgiStatus   cgiSystem(HttpdConnection_t *conn) {
+    request_t *req = get_request(conn);
     uint8_t mac[6];
     tcpip_adapter_ip_info_t ip_info;
     char *res;
@@ -69,7 +74,8 @@ CgiStatus   cgiSystem(HttpdConnection_t *conn) {
                     strcpy(buf, environ[i]);
                     t1 = strtok(buf, "=");
                     t2 = strtok(NULL, "\0");
-                    httpdPrintf(conn, "%s \"%s\": \"%s\" ", i==0?"":",", t1, t2);
+                    // if(strcmp(t1, "PASSWORD"))
+                        httpdPrintf(conn, "%s \"%s\": \"%s\" ", i==0?"":",", t1, t2);
                     i++;
                 }
             httpdPrintf(conn, "}, ");
@@ -138,6 +144,14 @@ CgiStatus   cgiSystem(HttpdConnection_t *conn) {
 		httpdEndHeaders(conn);
         ESP_LOGW(TAG, "Reboot requested. Shutdown in 2 seconds");
         reboot(2000000);
+        break;
+    case HTTPD_METHOD_PUT:
+        get_nvs_settings(true);
+        set_nvs_ssid(strtok(req->args[0], "&"));
+        ESP_LOGW(__func__, "Password: %s", strtok(NULL, ""));
+        commit_nvs_settings(true);
+        httpdStartResponse(conn, 200);
+		httpdEndHeaders(conn);
         break;
     default:
 		httpdStartResponse(conn, 405);  //http error code 'Method Not Allowed'

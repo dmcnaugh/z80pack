@@ -9,9 +9,19 @@
 static const char *TAG = "nvs";
 static nvs_handle my_handle = 0;
 
+static struct nvs_settings_t {
+    uint16_t settings;
+    char *ssid;
+    char *password;
+} nvs_settings;
+
 uint16_t get_nvs_settings(bool RW)
 {
-    uint16_t nvs_settings = 0; // value will default to 0, if not set yet in NVS
+    size_t required_size;
+
+    nvs_settings.settings = 0; // value will default to 0, if not set yet in NVS
+    nvs_settings.ssid = NULL;
+    nvs_settings.password = NULL;
 
     // Initialize NVS
     esp_err_t err = nvs_flash_init();
@@ -34,17 +44,17 @@ uint16_t get_nvs_settings(bool RW)
 
         // Read
         ESP_LOGI(TAG, "Reading settings from NVS ");
-        err = nvs_get_u16(my_handle, "settings", &nvs_settings);
+        err = nvs_get_u16(my_handle, "settings", &nvs_settings.settings);
         switch (err) {
             case ESP_OK:
                 ESP_LOGD(TAG, "Done");
-                ESP_LOGI(TAG, "settings = %08X", nvs_settings);
+                ESP_LOGI(TAG, "settings = %08X", nvs_settings.settings);
                 break;
             case ESP_ERR_NVS_NOT_FOUND:
                 ESP_LOGI(TAG, "The value is not initialized yet!");
                 // Write
                 ESP_LOGD(TAG, "Updating settings in NVS ... ");
-                err = nvs_set_u16(my_handle, "settings", nvs_settings);
+                err = nvs_set_u16(my_handle, "settings", nvs_settings.settings);
                 ESP_LOGD(TAG, "%s", (err != ESP_OK) ? "Failed!" : "Done");
                 // Commit written value.
                 // After setting any values, nvs_commit() must be called to ensure changes are written
@@ -58,6 +68,19 @@ uint16_t get_nvs_settings(bool RW)
                 ESP_LOGE(TAG, "Error (%s) reading!", esp_err_to_name(err));
         }
 
+        err = nvs_get_str(my_handle, "ssid", NULL, &required_size);
+        if (err == ESP_OK && required_size > 0) {
+            nvs_settings.ssid = malloc(required_size);
+            nvs_get_str(my_handle, "ssid", nvs_settings.ssid, &required_size);
+        }
+        // ESP_LOGI(TAG, "ssid = %s", nvs_settings.ssid==NULL?"<empty>":nvs_settings.ssid);
+        err = nvs_get_str(my_handle, "password", NULL, &required_size);
+        if (err == ESP_OK && required_size > 0) {
+            nvs_settings.password = malloc(required_size);
+            nvs_get_str(my_handle, "password", nvs_settings.password, &required_size);
+        }
+        // ESP_LOGI(TAG, "password = %s", nvs_settings.password==NULL?"<empty>":nvs_settings.password);
+
         // Close
         if (!RW) { 
             nvs_close(my_handle);
@@ -65,20 +88,44 @@ uint16_t get_nvs_settings(bool RW)
         }
     }
 
-    return nvs_settings;
+    return nvs_settings.settings;
 }
 
-void set_nvs_settings(uint16_t nvs_settings) {
+void set_nvs_settings(uint16_t settings) {
 
     if (my_handle == 0) {
         ESP_LOGE(TAG, "Error no NVS handle");
         return;
     }
 
+    nvs_settings.settings = settings;
+
     ESP_LOGI(TAG, "Updating settings in NVS ... ");
-    esp_err_t err = nvs_set_u16(my_handle, "settings", nvs_settings);
+    esp_err_t err = nvs_set_u16(my_handle, "settings", nvs_settings.settings);
     ESP_LOGI(TAG, "%s", (err != ESP_OK) ? "Failed!" : "Done");
 
+}
+
+void set_nvs_ssid(char *ssid) {
+    size_t required_size;
+
+    if (my_handle == 0) {
+        ESP_LOGE(TAG, "Error no NVS handle");
+        return;
+    }
+
+    ESP_LOGI(TAG, "Updating ssid in NVS to %s", ssid);
+    esp_err_t err = nvs_set_str(my_handle, "ssid", ssid);
+    ESP_LOGI(TAG, "%s", (err != ESP_OK) ? "Failed!" : "Done");
+
+    if (nvs_settings.ssid != NULL) free(nvs_settings.ssid);
+
+    err = nvs_get_str(my_handle, "ssid", NULL, &required_size);
+    if (err == ESP_OK && required_size > 0) {
+        nvs_settings.ssid = malloc(required_size);
+        nvs_get_str(my_handle, "ssid", nvs_settings.ssid, &required_size);
+    }
+    ESP_LOGI(TAG, "ssid = %s", nvs_settings.ssid);
 }
 
 void commit_nvs_settings(bool close) {
