@@ -288,12 +288,12 @@ int LibraryHandler(HttpdConnection_t *conn, void *unused) {
 	int i = 0;
     UNUSED(unused);
 
-    *(file_start) = '\0';
-
     if (*path == '\0') {
         LOGW(TAG, "Path to disk map not set. Call readDiskmap(path) first.");
         return 0;      
     }
+
+    *(file_start) = '\0';
 
     switch(req->method) {
     case HTTP_GET:
