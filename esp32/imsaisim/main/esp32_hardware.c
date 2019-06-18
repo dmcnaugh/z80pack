@@ -58,7 +58,7 @@ static spi_device_interface_config_t swcfg={
 	// .pre_cb=lcd_spi_pre_transfer_callback,  //Specify pre-transfer callback to handle D/C line
 };
 
-void tx_leds(spi_device_handle_t spi, uint8_t* data) 
+IRAM_ATTR void tx_leds(spi_device_handle_t spi, uint8_t* data) 
 {
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));       //Zero out the transaction
@@ -67,7 +67,7 @@ void tx_leds(spi_device_handle_t spi, uint8_t* data)
 	ESP_ERROR_CHECK( spi_device_transmit(spi, &t) );  //Transmit!
 }
 
-static void tx_status_leds(spi_device_handle_t spi, uint8_t* data) 
+IRAM_ATTR static void tx_status_leds(spi_device_handle_t spi, uint8_t* data) 
 {
     spi_transaction_t t;
     memset(&t, 0, sizeof(t));       //Zero out the transaction
@@ -76,7 +76,7 @@ static void tx_status_leds(spi_device_handle_t spi, uint8_t* data)
 	ESP_ERROR_CHECK( spi_device_transmit(spi, &t) );  //Transmit!
 }
 
-void rx_switches(spi_device_handle_t spi, uint8_t* data)
+IRAM_ATTR void rx_switches(spi_device_handle_t spi, uint8_t* data)
 {
 	spi_transaction_t t;
     memset(&t, 0, sizeof(t));       //Zero out the transaction
@@ -104,14 +104,14 @@ void update_status(int data, int mode)
     
     status_leds = (status_leds & status_pulse_bits) | status_bits;
     for (t=0; t < sizeof(leds); t++) leds[t] = 0;
-    leds[5] = status_leds;
+    leds[0] = status_leds;
     tx_leds(ledspi, leds);
     LATCH_LEDS;
 
 }
 
 void post_flash(void *arg) {
-    leds[5] = status_leds;
+    leds[0] = status_leds;
     tx_leds(ledspi, leds);
     LATCH_LEDS;
 }
@@ -210,27 +210,27 @@ void initialise_hardware(void) {
 	rx_switches(swspi, sws);
 	gpio_set_level(PIN_NUM_SW_OE, HIGH);
 
-	if(sws[3]) { 
+	if(sws[0]) { 
 		cpa_attached = 1;
         update_status(0x80, STATUS_SET);
-		ESP_LOGI(TAG, "CP-A Found - Power Switch %X", sws[3]);
+		ESP_LOGI(TAG, "CP-A Found - Power Switch %X", sws[0]);
 	} else {
 		cpa_attached = 0;
         update_status(0, STATUS_FLASH);
-		ESP_LOGI(TAG, "CP-A NOT Found - Power Switch %X", sws[3]);
+		ESP_LOGI(TAG, "CP-A NOT Found - Power Switch %X", sws[0]);
 	}
 
-    ESP_LOGI(TAG, "DIP/MEM Switches: %02X", sws[2]);
+    ESP_LOGI(TAG, "DIP/MEM Switches: %02X", sws[1]);
     if (EXAMINE(sws) && POWER_OFF(sws)) {
         ESP_LOGW(TAG, "Change to NVRAM setting mode");
 
-        leds[0] = 0;
+        leds[5] = 0;
         nvs_settings = get_nvs_settings(true);
 
-        while( !RUN(sws) ) {
-            leds[0] = leds[0] ? leds[0] << 1 : 1;
-            leds[3] = nvs_settings >> 8;
-            leds[1] = nvs_settings & 0xFF;
+        while( !SW_RESET(sws) ) {
+            leds[5] = leds[5] ? leds[5] << 1 : 1;
+            leds[2] = nvs_settings >> 8;
+            leds[4] = nvs_settings & 0xFF;
             tx_leds(ledspi, leds);
             LATCH_LEDS;
             usleep(100000);
@@ -238,7 +238,7 @@ void initialise_hardware(void) {
             poll_toggles();
 
             if (DEPOSIT(sws)) {
-                nvs_settings = sws[0] << 8 | sws[1];
+                nvs_settings = sws[3] << 8 | sws[2];
                 set_nvs_settings(nvs_settings);
                 usleep(500000);
             }

@@ -301,8 +301,8 @@ void poll_switches(void) {
 
 	//ESP_LOGI(__func__, "Switches %02X %02X %02X %02X", sws[3], sws[2], sws[1], sws[0]);
 
-	address_switch = sws[0] << 8 | sws[1];
-	keySW = (sws[2] << 8 | sws[3]); // & keySHOT;
+	address_switch = sws[3] << 8 | sws[2];
+	keySW = (sws[1] << 8 | sws[0]); // & keySHOT;
 	key_switch = keySW & keySHOT;
 	keySHOT = ~ (keySW & 0b0000111110111100) ; // Don't one-shot the RESET/RST.CLR. switch
 
@@ -340,7 +340,7 @@ void poll_switches(void) {
 
 }
 
-void sample_callback(void)
+IRAM_ATTR void sample_callback(void)
 {	
 #ifndef ESP_PLATFORM
 	if((cpu_state == CONTIN_RUN) && (sampdiv++ < 2000)) return;
@@ -356,12 +356,12 @@ void sample_callback(void)
 	write(extPanel, extBuffer, len);
 #else
 	if(cpa_attached) {
-		leds[5] = ~fp_led_output;
-		leds[4] = cpu_bus;
-		leds[3] = fp_led_address >> 8;
-		leds[2] = fp_led_data;
-		leds[1] = fp_led_address & 0xff;
-		leds[0] = (( IFF << 3 | (cpu_state & 1) << 2 | fp_led_wait << 1 | bus_request ) & 0x0F); // | runSWBITS; // turn-on keySW bits
+		leds[0] = ~fp_led_output;
+		leds[1] = cpu_bus;
+		leds[2] = fp_led_address >> 8;
+		leds[3] = fp_led_data;
+		leds[4] = fp_led_address & 0xff;
+		leds[5] = (( IFF << 3 | (cpu_state & 1) << 2 | fp_led_wait << 1 | bus_request ) & 0x0F); // | runSWBITS; // turn-on keySW bits
 		tx_leds(ledspi, leds);
 		LATCH_LEDS;
 	}
