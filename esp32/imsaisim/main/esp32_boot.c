@@ -135,6 +135,9 @@ void reboot(int);
 
 void app_main()
 {
+    char buf[BUFSIZE];
+    char rom[5];
+    char *r;
 
     nvs_settings = get_nvs_settings(false);
 
@@ -163,17 +166,22 @@ void app_main()
     if(NVS_BANK_ROM) {
         sim_args[sim_arg_count++] = strdup("-r");
     }
-    if(NVS_VIO) {
-        sim_args[sim_arg_count++] = strdup("-x /sdcard/imsai/mpu-a-vio-rom.hex");
-    } else {
-        sim_args[sim_arg_count++] = strdup("-x /sdcard/imsai/bootrom.hex");
-    }
     if(NVS_UNLIMITED) {
         sim_args[sim_arg_count++] = strdup("-f 0");
     } else if(NVS_4MHZ) {
         sim_args[sim_arg_count++] = strdup("-f 4");
     } else {
         sim_args[sim_arg_count++] = strdup("-f 2");
+    }
+
+    if(NVS_BOOT_ROM) {
+        sprintf(rom, "ROM%d", NVS_BOOT_ROM);
+        if((r = getenv(rom)) != NULL) {
+
+            strcpy(buf, "-x /sdcard/imsai/");
+            strcat(buf, r);
+            sim_args[sim_arg_count++] = strdup(buf);
+        }
     }
 
     initialise_network();
