@@ -81,6 +81,7 @@ CgiStatus   cgiSystem(HttpdConnection_t *conn) {
             httpdPrintf(conn, "}, ");
 
             httpdPrintf(conn, "\"system\": { ");
+                httpdPrintf(conn, "\"%s\": \"%s\",", "IDF_VER", esp_get_idf_version());
                 httpdPrintf(conn, "\"free_mem\": %d, ", heap_caps_get_free_size(MALLOC_CAP_8BIT )); //| MALLOC_CAP_INTERNAL));
                 httpdPrintf(conn, "\"time\": %ld, ", time(NULL));
                 httpdPrintf(conn, "\"uptime\": %lld ", esp_timer_get_time());
@@ -94,6 +95,10 @@ CgiStatus   cgiSystem(HttpdConnection_t *conn) {
             httpdPrintf(conn, "}, ");
 
             httpdPrintf(conn, "\"about\": { ");
+                const esp_app_desc_t* desc = esp_ota_get_app_description();
+
+                httpdPrintf(conn, "\"%s\": \"%s\", ", "APP_VER", desc->version);
+
                 httpdPrintf(conn, "\"%s\": \"%s\", ", "USR_COM", USR_COM);
                 httpdPrintf(conn, "\"%s\": \"%s\", ", "USR_REL", USR_REL);
                 httpdPrintf(conn, "\"%s\": \"%s\", ", "USR_CPR", USR_CPR);
