@@ -9,7 +9,7 @@
 
 #define USR_COM	"ESP32 IMSAI 8080 Simulation"
 #define USR_REL	"1.18-dev (ESP32)"
-#define USR_CPR	"Copyright (C) 2008-2018 by Udo Munk & David McNaughton"
+#define USR_CPR	"Copyright (C) 2008-2019 by Udo Munk & David McNaughton"
 
 #define CONFDIR CONFIG_CONFDIR
 #define DISKSDIR CONFIG_DISKSDIR
