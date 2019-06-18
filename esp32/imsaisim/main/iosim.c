@@ -79,7 +79,7 @@ extern void ctrl_port_out(BYTE);
 extern BYTE ctrl_port_in(void);
 static const char *TAG = "IO";
 
-static int printer;		/* fd for file "printer.txt" */
+static FILE *printer;		/* fd for file "printer.txt" */
 BYTE hwctl_lock = 0xff;		/* lock status hardware control port */
 static BYTE clkcmd;		/* clock command */
 static BYTE clkfmt;		/* clock format, 0 = BCD, 1 = decimal */
@@ -944,22 +944,22 @@ static BYTE speedh_in(void)
 
 void lpt_close(void) {
 	/* close line printer file */
-	if (printer != 0) {
+	if (printer != NULL) {
 		printf("CLOSE PRINTER\n\r");
-		close(printer);
-		printer = 0;
+		fclose(printer);
+		printer = NULL;
 	}
 }
 
 static void lpt_out(BYTE data)
 {
-	if ((printer == 0) && !(data & 0x80))
+	if ((printer == NULL) && !(data & 0x80))
 		// printer = creat("printer.txt", 0664);
-		printer = open(PRINT_FILE, O_WRONLY, O_CREAT | O_APPEND);
+		printer = fopen(PRINT_FILE, "w");
 
 	if ((data != '\r') && !(data & 0x80)) {
 again:
-		if (write(printer, (char *) &data, 1) != 1) {
+		if (fwrite((char *) &data, 1, 1, printer) != 1) {
 			if (errno == EINTR) {
 				goto again;
 			} else {
