@@ -1,0 +1,9 @@
+*.o
+*.d
+imsaisim/www
+.DS_store
+altairsim/disks
+cpmsim/disks
+imsaisim/disks
+esp32/imsaisim/build
+.vscode/ipch

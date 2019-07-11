@@ -1,0 +1,28 @@
+{
+    "files.associations": {
+        "*.debug": "c",
+        "frontpanel.h": "c",
+        "sim.h": "c",
+        "__tree": "c",
+        "map": "c",
+        "__split_buffer": "c",
+        "array": "c",
+        "deque": "c",
+        "iterator": "c",
+        "queue": "c",
+        "string": "c",
+        "string_view": "c",
+        "vector": "c",
+        "netsrv.h": "c",
+        "simglb.h": "c",
+        "log.h": "c",
+        "stat.h": "c",
+        "bitset": "c",
+        "_s_ifmt.h": "c",
+        "__locale": "c",
+        "civetweb.h": "c",
+        "initializer_list": "c",
+        "memory": "c",
+        "utility": "c"
+    }
+}

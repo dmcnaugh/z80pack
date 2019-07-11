@@ -1,0 +1,42 @@
+{
+    "configurations": [
+        {
+            "name": "ESP32",
+            "includePath": [
+                "${workspaceFolder}/components/**",
+                "/Users/dmcnaughton/esp/esp-idf/components/**",
+               "${workspaceFolder}/main"
+            ],
+            "defines": [ "ESP_PLATFORM", "ESP32" ],
+            "intelliSenseMode": "clang-x64",
+            "browse": {
+                "path": [
+                    "/Users/dmcnaughton/esp/esp-idf",
+                    "${workspaceFolder}"
+                ],
+                "limitSymbolsToIncludedHeaders": true,
+                "databaseFilename": ""
+            },
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c11",
+            "cppStandard": "c++17"
+        },
+        {
+            "name": "Mac",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "../civetweb/include"
+            ],
+            "defines": [],
+            "macFrameworkPath": [
+                "/System/Library/Frameworks",
+                "/Library/Frameworks"
+            ],
+            "compilerPath": "/usr/bin/clang",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "intelliSenseMode": "clang-x64"
+        }
+    ],
+    "version": 4
+}
